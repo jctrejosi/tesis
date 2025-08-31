@@ -1,112 +1,96 @@
-## **Documento: Diseño preliminar del prototipo automatizado basado en ESP32**
+## Diseño de autocultivo automatizado
 
-### 1. Introducción
+### 1. Modalidad del trabajo de grado
 
-Este documento describe el diseño preliminar de un prototipo de automatización para cultivos en espacios controlados (indoor). El objetivo inicial es probar la viabilidad técnica de controlar cargas eléctricas y sensores ambientales usando una placa de desarrollo ESP32, con miras a un sistema escalable y de bajo costo aplicable a diferentes gamas de producción agrícola.
+**Proyecto Final (aplicación/ingeniería aplicada).**
+ Justificación: la naturaleza del trabajo es de diseño, implementación y validación de un prototipo funcional (hardware + firmware + modelo de control) orientado a resolver un problema práctico: automatización de variables ambientales en un cultivo indoor de pequeña escala.
 
-------
+### 2. Título del trabajo de grado
 
-### 2. Objetivo del prototipo
+**Diseño e implementación de un sistema automatizado y escalable para el control de variables ambientales en cultivos indoor basado en ESP32.**
 
-- Automatizar el encendido y apagado de un bombillo LED de cultivo de 110 V AC.
-- Validar el uso de la placa ESP32 como núcleo de control.
-- Documentar la selección de componentes y la arquitectura básica del sistema.
-- Establecer las bases para integrar sensores (temperatura, humedad) y futuras funcionalidades como control de ventilación, riego y monitoreo remoto.
+### 3. Introducción y justificación
 
-------
+Los sistemas de agricultura controlada (CEA — Controlled Environment Agriculture) permiten mejorar rendimiento y calidad de cultivos mediante control de iluminación, temperatura, humedad y riego. Sin embargo, las soluciones comerciales suelen ser costosas y poco adaptadas a pequeños productores rurales. Este trabajo propone diseñar y validar un prototipo de bajo costo, modular y escalable que automatice variables críticas en un gabinete indoor (1 m × 1 m × 1.5 m), usando microcontroladores económicos (ESP32), sensores comerciales y estrategias de control (ON/OFF, histéresis, PID).
 
-### 3. Selección de hardware
+El proyecto aporta una solución replicable orientada a pequeños agricultores y proyectos de investigación académica: reduce intervención manual, permite registro y telemetría, y considera opciones de alimentación dual (red eléctrica y energía solar) para entornos con suministro inestable. Además aporta conocimiento metodológico (modelado físico y de control) y evidencia experimental para la toma de decisiones en cultivos controlados.
 
-#### 3.1 Microcontrolador: ESP32 DevKit v1
+### 4. Objetivo general
 
-- **Ventajas**: Wi-Fi y Bluetooth integrados, amplia documentación, bajo costo (~10 USD), 34 GPIOs configurables.
-- **Desventajas**: Salidas limitadas a 3.3 V (requiere interfaz para controlar cargas de mayor voltaje), disipación limitada.
-- **Razón de elección**: ofrece conectividad para pruebas de IoT, es económica y fácilmente programable en Arduino IDE o PlatformIO.
+Diseñar, implementar y validar un sistema automatizado y escalable que controle iluminación, ventilación, riego y parámetros del medio (temperatura, humedad y pH) en un gabinete indoor, integrando hardware (ESP32, sensores y actuadores), firmware modular y modelos de control, con la opción de alimentación eléctrica por red o por panel solar.
 
-#### 3.2 Módulo relé para cargas AC
+### 5. Objetivos específicos
 
-- Permite conmutar un bombillo de 80 W a 110 V de forma segura.
-- El relé actúa como aislante entre el microcontrolador y la red eléctrica.
-- Costo estimado: 3 USD.
-- Se recomienda incluir **fusible en serie** para protección básica.
+1. Definir los requerimientos funcionales y de seguridad para un gabinete indoor de 1×1×1.5 m destinado a cultivo de hierbas aromáticas.
 
-#### 3.3 Sensor ambiental (opcional para segunda etapa)
+2. Seleccionar y justificar componentes hardware para la construcción del sistema automatizado: ESP32, sensores (T/H, pH, luz) y actuadores (relés/SSR, MOSFET, bombas, extractores).
 
-- **DHT22**: mide temperatura y humedad relativa (±2 % HR, ±0.5 °C).
-- Conectado a GPIO del ESP32, útil para monitorear condiciones de prueba.
-- Costo estimado: 5 USD.
+3. Implementar un prototipo MVP que controle la iluminación y la ventilación, riego y registre temperatura y humedad.
 
-#### 3.4 Carga de prueba: Bombillo LED cultivo 80 W
+4. Desarrollar firmware modular (drivers → API → lógica de control) y una interfaz de telemetría básica (MQTT/HTTP + dashboard).
 
-- Corriente aproximada: ~0.7 A a 110 V.
-- No requiere control de intensidad (modo ON/OFF).
-- Costo estimado: 8–12 USD.
-- Adecuado para validar el control básico y establecer consumo eléctrico.
+5. Modelar el comportamiento térmico e hídrico del gabinete (simulación en Python/SciPy) y comparar estrategias de control (ON/OFF vs PID).(ON/OFF, histéresis, PID).
 
-------
+6. Evaluar desempeño experimental (estabilidad de condiciones, consumo energético) y proponer un esquema de escalado y alimentación solar.
 
-### 4. Esquema eléctrico básico
+7. Documentar procedimientos, resultados experimentales, impactos ambientales y recomendaciones para escalamiento.
 
-1. **ESP32 GPIO** → **Transistor o relé** → **Bombillo LED (110 V)**
-2. Alimentación del ESP32 vía USB o fuente 5 V.
-3. Fusible en serie con el bombillo para seguridad.
-4. Conexiones protegidas y aisladas (caja plástica o regleta).
+### 6. Antecedentes
 
-*(Insertar diagrama en Draw.io o Fritzing)*
+La literatura sobre CEA muestra avances en iluminación LED de espectro específico, control climático mediante PID y enfoques IoT para monitoreo remoto. Revisiones recientes sostienen que la selección de espectro y la gestión del fotoperiodo impactan significativamente rendimiento y calidad (revisiones en horticultura controlada). Trabajos aplicados demuestran prototipos basados en microcontroladores (ESP32/Arduino) para invernaderos y sistemas hidropónicos, aportando arquitecturas de telemetría y control. En control, numerosos estudios comparan ON/OFF, histogramas con histéresis y controladores PID o adaptativos para mantener temperatura y humedad en rangos óptimos. Finalmente, informes técnicos de energía (NREL y similares) discuten viabilidad de integrar paneles solares y bancos de baterías en instalaciones de CEA a pequeña escala.
 
-------
+### 7. Metodología
 
-### 5. Lista de materiales (BOM)
+**Enfoque:** Diseño experimental y de ingeniería aplicada — combinación de prototipado, simulación y pruebas controladas.
 
-| Componente                   | Cant. | Precio aprox (USD) | Función                                   |
-| ---------------------------- | ----- | ------------------ | ----------------------------------------- |
-| ESP32 DevKit v1              | 1     | 10                 | Control principal, ejecución del firmware |
-| Módulo relé 1 canal          | 1     | 3                  | Conmutación segura de 110 V               |
-| Bombillo LED cultivo 80 W    | 1     | 8–12               | Carga inicial de prueba                   |
-| Fusible + portafusible       | 1     | 1                  | Protección de la línea                    |
-| Sensor DHT22 (opcional)      | 1     | 5                  | Medición de temperatura y humedad         |
-| Cables, borneras, protoboard | -     | 5                  | Conexiones seguras                        |
-| Multímetro (si no se tiene)  | 1     | 20                 | Medición y diagnóstico                    |
+**Fases y actividades:**
 
-**Costo estimado del prototipo inicial:** ~27–30 USD (sin herramientas).
+1. **Revisión bibliográfica y definición de requisitos (Sem. 1–2):** recopilar parámetros óptimos para especies test (ej. albahaca, menta), rangos de T/H, fotoperiodos, y validar restricciones de seguridad eléctrica y normativa.
+2. **Diseño hardware y adquisición (Sem. 3–4):** selección final de componentes: ESP32 DevKit, sensor T/H (SHT31 o DHT22 para pruebas), sensor de luz (BH1750), sensor pH (PH-4502C o similar con acondicionador), módulos de conmutación (SSR para AC, MOSFET para DC), bombas 12 V, fusibles, caja, prensaestopas, y fuente/banco de baterías para pruebas solares. Preparación de BOM y compras.
+3. **Implementación MVP (Sem. 5–7):** montaje seguro del gabinete, conexión eléctrica con fusible y protecciones, pruebas de conmutación ON/OFF de bombillo 110 V (SSR/relé), instalación de sensores y lectura básica por ESP32. Generación de firmware base (fail-safe, lectura periódica de sensores, control ON/OFF por histéresis).
+4. **Desarrollo de software y telemetría (Sem. 7–9):** firmware modular (drivers para cada sensor/actuador, API interna), comunicación Wi-Fi (MQTT/HTTP), y dashboard mínimo (Flask + React o similar) para registro y visualización.
+5. **Modelado y simulación (Sem. 8–10, en paralelo):** modelado dinámico de temperatura y humedad del gabinete usando Python (SciPy, control). Simular respuestas del sistema a fotoperiodo y a conmutaciones del extractor. Evaluar control ON/OFF vs PID y proponer parámetros iniciales.
+6. **Integración de riego y pH (Sem. 10–12):** integración de bomba controlada por MOSFET/relé y sonda pH con calibración. Añadir lógicas de dosificación básica y protección.
+7. **Arquitectura de alimentación dual (Sem. 11–13):** diseño del sistema de alimentación que permita conexión a red eléctrica y operación con panel solar+batería (dimensionamiento aproximado, controlador de carga, protección). Pruebas en banco con batería.
+8. **Pruebas experimentales y recolección de datos (Sem. 12–15):** ejecución de campañas de prueba (24–72 h y hasta 2 semanas) registrando T/H, fotoperiodo, consumo energético y calidad del pH. Evaluar estabilidad del sistema y robustez del firmware.
+9. **Análisis, documentación y defensa (Sem. 15–16):** análisis estadístico de resultados, comparación contra objetivos, preparación de informe final, manual técnico y presentación ante el jurado.
 
-------
+**Métodos de análisis:** gráficas temporales, verificación de cumplimiento de rangos (T/H/pH), análisis de consumo energético (Wh), simulaciones comparativas, y evaluación de la escalabilidad (costos y diseño para alimentación solar).
 
-### 6. Procedimiento experimental
+**Consideraciones éticas y legales:** usar especies permitidas para las pruebas (albahaca, lechuga, menta). Cumplir normas de seguridad eléctrica y evitar riesgos a terceros.
 
-1. **Montaje eléctrico seguro** en protoboard o tablero de pruebas.
-2. **Programación del ESP32** con un sketch básico:
-   - GPIO configurado como salida digital.
-   - Activación/desactivación del relé en intervalos de tiempo.
-3. **Verificación eléctrica:** medir tensión de control (3.3 V) y tensión en el relé (110 V).
-4. **Prueba con carga real:** conectar el bombillo LED y registrar su comportamiento.
-5. **Documentación:** registrar temperatura del relé, estabilidad del sistema y cualquier ruido eléctrico.
+### 8. Cronograma de actividades
 
-------
+| Actividad / Semana                     | 1    | 2    | 3    | 4    | 5    | 6    | 7    | 8    | 9    | 10   | 11   | 12   | 13   | 14   | 15   | 16   |
+| -------------------------------------- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| 1. Revisión bibliográfica y requisitos | X    | X    |      |      |      |      |      |      |      |      |      |      |      |      |      |      |
+| 2. Diseño y compra de hardware (BOM)   |      | X    | X    |      |      |      |      |      |      |      |      |      |      |      |      |      |
+| 3. Montaje físico del gabinete         |      |      | X    | X    |      |      |      |      |      |      |      |      |      |      |      |      |
+| 4. Firmware MVP (ON/OFF)               |      |      |      | X    | X    |      |      |      |      |      |      |      |      |      |      |      |
+| 5. Integración sensores T/H y luz      |      |      |      |      | X    | X    |      |      |      |      |      |      |      |      |      |      |
+| 6. Telemetría e interfaz (Flask/React) |      |      |      |      |      | X    | X    |      |      |      |      |      |      |      |      |      |
+| 7. Modelado y simulaciones (Python)    |      |      |      |      |      |      | X    | X    | X    |      |      |      |      |      |      |      |
+| 8. Integración riego / pH              |      |      |      |      |      |      |      | X    | X    | X    |      |      |      |      |      |      |
+| 9. Diseño alimentación solar           |      |      |      |      |      |      |      |      | X    | X    | X    |      |      |      |      |      |
+| 10. Pruebas experimentales (24h–2sem)  |      |      |      |      |      |      |      |      |      | X    | X    | X    | X    |      |      |      |
+| 11. Análisis de datos y redacción      |      |      |      |      |      |      |      |      |      |      | X    | X    | X    | X    | X    |      |
+| 12. Preparación defensa y entrega      |      |      |      |      |      |      |      |      |      |      |      |      |      | X    | X    | X    |
 
-### 7. Consideraciones de escalabilidad
+### 9. Resultados y aportes
 
-- **Control de intensidad de luz**: no viable con relé, se requiere MOSFET o driver especializado si el bombillo fuera DC.
-- **Seguridad eléctrica:** la caja debe ser ignífuga y cerrada para evitar contacto accidental con AC.
-- **Compatibilidad futura:** la lógica de control puede diseñarse en firmware y API independiente del hardware, facilitando migrar a placas más potentes (STM32, Raspberry Pi) o más económicas (Arduino UNO, ESP8266).
-- **Impacto ambiental:** se evaluará eficiencia energética y alternativas sostenibles (p. ej. luz natural suplementada).
+###### **Resultados esperados:**
 
-------
+- Prototipo funcional de gabinete indoor (1×1×1.5m) con: control de iluminación, control de ventilación, riego automático básico, sensores T/H, sensor de luz, sensor pH integrado y registro de datos.
+- Firmware modular documentado (drivers, API de control, lógica de seguridad).
+- Dashboard web para monitoreo y registr.
+- Modelos y simulaciones en Python del comportamiento térmico/higrométrico del gabinete y comparativa de estrategias de control.
+- Análisis energético con propuesta de esquema de alimentación dual (red + solar) y dimensionamiento preliminar del sistema fotovoltáico.
+- Documento final de tesis, manual técnico de montaje y un artículo en formato corto (con resultados experimentales).
 
-### 8. Conclusiones preliminares
+###### **Aportes específicos:**
 
-- La ESP32 es una opción adecuada para prototipado rápido y pruebas de bajo costo.
-- La automatización básica de luz (ON/OFF) es sencilla y segura con un módulo relé bien dimensionado.
-- Este prototipo es la base para integrar sensores y, posteriormente, modelar el impacto ambiental y energético del sistema indoor.
-- La arquitectura puede adaptarse a diferentes escalas productivas cambiando solo los módulos de potencia.
+- Demostrar viabilidad técnica y económica de una solución de automatización de bajo costo para pequeños productores.
+- Metodología reproducible para integración hardware–software y criterios de diseño para operación con energía solar.
+- Conjunto de datos experimentales para análisis comparativo de estrategias de control en un entorno controlado.
 
-------
-
-### 9. Referencias
-
-1. Espressif Systems. *ESP32 Technical Reference Manual*.
-2. Random Nerd Tutorials. *ESP32 Relay Module AC/DC Control*.
-3. IEEE Xplore. *Low-cost IoT-based greenhouse monitoring systems*.
-4. All About Circuits. *Best practices for AC and DC switching in microcontroller projects*.
-
-------
+### 10. Bibliografía
