@@ -112,3 +112,13 @@ Este documento describe los **principales tipos de conectores y protocolos de co
 - Para sistemas finales, considerar **RS-485 o 4-20 mA** si habrá cableado largo o interferencias.
 - Proteger las entradas con **resistencias, filtros RC o TVS diodes** si hay riesgo de picos.
 - Asignar **GPIOs separados para relés/SSR** y **otros buses (I²C, SPI)** para evitar conflictos.
+
+## 5. Conexiones que pueden incluirse
+
+- **Entradas analógicas (ADC 0–3.3 V)** → sondas básicas.
+- **Entradas digitales GPIO (HIGH/LOW o PWM)** → detectores de movimiento, flotadores.
+- **Bus I²C (SDA/SCL)** → sensores ambientales múltiples.
+- **Bus SPI (MISO/MOSI/SCK/CS)** → sensores de alta velocidad o precisión.
+- **Puertos UART configurables** → sensores CO₂, GPS, módulos de comunicación.
+- **Entrada 4–20 mA** (opcional con módulo) → sensores industriales robustos.
+- **RS-485/Modbus RTU** (opcional con transceptor) → aplicaciones agrícolas a larga distancia.
