@@ -7,11 +7,12 @@
 
 ### 2. Título del trabajo de grado
 
-**Diseño e implementación de un sistema automatizado y escalable para el control de variables ambientales en cultivos indoor basado en ESP32.**
+**Sistema de cultivo indoor automatizado con inteligencia artificial para monitoreo y control ambienta**
 
 ### 3. Introducción y justificación
 
-Los sistemas de agricultura controlada (CEA — Controlled Environment Agriculture) permiten mejorar rendimiento y calidad de cultivos mediante control de iluminación, temperatura, humedad y riego. Sin embargo, las soluciones comerciales suelen ser costosas y poco adaptadas a pequeños productores rurales. Este trabajo propone diseñar y validar un prototipo de bajo costo, modular y escalable que automatice variables críticas en un gabinete indoor (1 m × 1 m × 1.5 m), usando microcontroladores económicos (ESP32), sensores comerciales y estrategias de control (ON/OFF, histéresis, PID).
+Los sistemas de agricultura controlada (CEA — Controlled Environment Agriculture) permiten mejorar el rendimiento y calidad de cultivos mediante control de iluminación, temperatura, humedad y riego. Sin embargo, las soluciones comerciales suelen ser costosas y poco adaptadas a pequeños productores rurales.
+Este trabajo propone diseñar y validar un prototipo de bajo costo, modular y escalable que automatice variables críticas en un gabinete indoor (1 m × 1 m × 1.5 m), usando microcontroladores económicos (ESP32), sensores comerciales y estrategias de control (ON/OFF, histéresis, PID).
 
 El proyecto aporta una solución replicable orientada a pequeños agricultores y proyectos de investigación académica: reduce intervención manual, permite registro y telemetría, y considera opciones de alimentación dual (red eléctrica y energía solar) para entornos con suministro inestable. Además aporta conocimiento metodológico (modelado físico y de control) y evidencia experimental para la toma de decisiones en cultivos controlados.
 
@@ -21,17 +22,17 @@ Diseñar, implementar y validar un sistema automatizado y escalable que controle
 
 ### 5. Objetivos específicos
 
-1. Definir los requerimientos funcionales y de seguridad para un gabinete indoor de 1×1×1.5 m destinado a cultivo de hierbas aromáticas.
+1. Definir los requerimientos funcionales y de seguridad para un gabinete indoor de 1×1×1.5 m destinado a cultivo de hierbas arómáticas y comestibles.
 
-2. Seleccionar y justificar componentes hardware para la construcción del sistema automatizado: ESP32, sensores (T/H, pH, luz) y actuadores (relés/SSR, MOSFET, bombas, extractores).
+2. Seleccionar y justificar componentes hardware para la construcción del sistema automatizado: ESP32, sensores (T/H, pH, luz, MOSFET) y actuadores (relés/SSR, bombas, extractores, iluminación).
 
-3. Implementar un prototipo MVP que controle la iluminación y la ventilación, riego y registre temperatura y humedad.
+3. Implementar un prototipo MVP que controle la iluminación, la ventilación y el riego, y registre variables ambientales como temperatura, humedad, conductividad, impedancia eléctrica y ángulo de fase, para analizar el estado fisiológico y las condiciones de crecimiento de las plantas en el sistema indoor automatizado.
 
-4. Desarrollar firmware modular (drivers → API → lógica de control) y una interfaz de telemetría básica (MQTT/HTTP + dashboard).
+4. Desarrollar firmware modular (drivers → API → lógica de control) y una interfaz de telemetría básica (HTTP + dashboard).
 
-5. Modelar el comportamiento térmico e hídrico del gabinete (simulación en Python/SciPy) y comparar estrategias de control (ON/OFF vs PID).(ON/OFF, histéresis, PID).
+5. Modelar el comportamiento térmico e hídrico del gabinete y comparar con distintas estrategias de control.
 
-6. Evaluar desempeño experimental (estabilidad de condiciones, consumo energético) y proponer un esquema de escalado y alimentación solar.
+6. Evaluar el desempeño experimental del sistema en términos de estabilidad de las condiciones ambientales y eficiencia energética, y formular una propuesta de escalado para su implementación a mayor capacidad o en múltiples módulos.
 
 7. Documentar procedimientos, resultados experimentales, impactos ambientales y recomendaciones para escalamiento.
 
@@ -43,54 +44,104 @@ La literatura sobre CEA muestra avances en iluminación LED de espectro específ
 
 **Enfoque:** Diseño experimental y de ingeniería aplicada — combinación de prototipado, simulación y pruebas controladas.
 
-**Fases y actividades:**
+**Fases y actividades**
 
-1. **Revisión bibliográfica y definición de requisitos (Sem. 1–2):** recopilar parámetros óptimos para especies test (ej. albahaca, menta), rangos de T/H, fotoperiodos, y validar restricciones de seguridad eléctrica y normativa.
-2. **Diseño hardware y adquisición (Sem. 3–4):** selección final de componentes: ESP32 DevKit, sensor T/H (SHT31 o DHT22 para pruebas), sensor de luz (BH1750), sensor pH (PH-4502C o similar con acondicionador), módulos de conmutación (SSR para AC, MOSFET para DC), bombas 12 V, fusibles, caja, prensaestopas, y fuente/banco de baterías para pruebas solares. Preparación de BOM y compras.
-3. **Implementación MVP (Sem. 5–7):** montaje seguro del gabinete, conexión eléctrica con fusible y protecciones, pruebas de conmutación ON/OFF de bombillo 110 V (SSR/relé), instalación de sensores y lectura básica por ESP32. Generación de firmware base (fail-safe, lectura periódica de sensores, control ON/OFF por histéresis).
-4. **Desarrollo de software y telemetría (Sem. 7–9):** firmware modular (drivers para cada sensor/actuador, API interna), comunicación Wi-Fi (MQTT/HTTP), y dashboard mínimo (Flask + React o similar) para registro y visualización.
-5. **Modelado y simulación (Sem. 8–10, en paralelo):** modelado dinámico de temperatura y humedad del gabinete usando Python (SciPy, control). Simular respuestas del sistema a fotoperiodo y a conmutaciones del extractor. Evaluar control ON/OFF vs PID y proponer parámetros iniciales.
-6. **Integración de riego y pH (Sem. 10–12):** integración de bomba controlada por MOSFET/relé y sonda pH con calibración. Añadir lógicas de dosificación básica y protección.
-7. **Arquitectura de alimentación dual (Sem. 11–13):** diseño del sistema de alimentación que permita conexión a red eléctrica y operación con panel solar+batería (dimensionamiento aproximado, controlador de carga, protección). Pruebas en banco con batería.
-8. **Pruebas experimentales y recolección de datos (Sem. 12–15):** ejecución de campañas de prueba (24–72 h y hasta 2 semanas) registrando T/H, fotoperiodo, consumo energético y calidad del pH. Evaluar estabilidad del sistema y robustez del firmware.
-9. **Análisis, documentación y defensa (Sem. 15–16):** análisis estadístico de resultados, comparación contra objetivos, preparación de informe final, manual técnico y presentación ante el jurado.
+1. **Revisión bibliográfica y definición de requisitos (Sem. 1–2):**  
+   Recopilar parámetros óptimos para distintas especies de hierbas, rangos de temperatura y humedad, fotoperiodos y requerimientos de riego. Validar restricciones de seguridad eléctrica y normativa aplicable.
 
-**Métodos de análisis:** gráficas temporales, verificación de cumplimiento de rangos (T/H/pH), análisis de consumo energético (Wh), simulaciones comparativas, y evaluación de la escalabilidad (costos y diseño para alimentación solar).
+2. **Diseño hardware y adquisición (Sem. 3–4):**  
+   Selección de componentes (ESP32 DevKit, sensores de T/H, luz y pH, módulos de conmutación, fuentes y protecciones). Elaboración de la lista de materiales (BOM) y verificación de compatibilidad eléctrica.
 
-**Consideraciones éticas y legales:** usar especies permitidas para las pruebas (albahaca, lechuga, menta). Cumplir normas de seguridad eléctrica y evitar riesgos a terceros.
+3. **Implementación del prototipo MVP (Sem. 5–7):**  
+   Montaje seguro del gabinete de cultivo, cableado de potencia y control, instalación de sensores y actuadores. Desarrollo del firmware base con lectura periódica de sensores, control ON/OFF por histéresis y funciones de seguridad (fail-safe).
+
+4. **Desarrollo de software y telemetría (Sem. 7–9):**  
+   Estructuración modular del firmware (drivers, API interna, lógica de control). Integración IoT para transmisión de datos y creación de un dashboard mínimo para registro y visualización remota.
+
+5. **Modelado y simulación de control (Sem. 9–10):**  
+   Simular el comportamiento del sistema ante variaciones de las condiciones ambientales y operativas (iluminación, ventilación, riego). Comparar los esquemas de control por histéresis y PID y definir parámetros iniciales de ajuste.
+
+6. **Integración del sistema de riego (Sem. 10–12):**  
+   Implementar la bomba controlada mediante MOSFET o relé, integrar los sensores de humedad del sustrato y flujo de agua, y desarrollar las lógicas básicas de dosificación, calibración y protección del sistema.
+
+7. **Pruebas experimentales y recolección de datos (Sem. 12–14):**  
+   Ejecución de campañas de prueba de corto y mediano plazo (24–72 h y hasta 2 semanas). Registro continuo de variables: temperatura, humedad, fotoperiodo, consumo energético y condiciones del sustrato. Evaluación de estabilidad y respuesta del sistema.
+
+8. **Análisis de resultados y evaluación del cultivo (Sem. 14–15):**  
+   Procesamiento estadístico de los datos experimentales, evaluación de desempeño de controladores (PID vs histéresis) y análisis del desarrollo vegetal (biomasa, humedad de hoja o crecimiento relativo según la especie seleccionada).
+
+9. **Documentación y presentación final (Sem. 16):**  
+   Consolidación de resultados técnicos y experimentales, elaboración del informe final, manual técnico de operación y presentación ante el jurado o comité evaluador.
+
+
+**Métodos de análisis:**  
+Se emplearán métodos cuantitativos y comparativos para evaluar el desempeño global del sistema automatizado.  
+Se generarán **gráficas temporales** de las variables ambientales y eléctricas (temperatura, humedad, iluminación, humedad del sustrato, flujo de agua, tensión, corriente y potencia), con el fin de analizar la estabilidad, los tiempos de respuesta y la dinámica de control bajo distintas condiciones operativas.  
+
+Se realizará la **verificación de cumplimiento de rangos óptimos** definidos para cada tipo de planta o cultivo, así como la detección de desviaciones, oscilaciones y sobrecorrecciones asociadas a los esquemas de control (histéresis y PID).  
+
+El **análisis energético** incluirá el cálculo del consumo total y parcial por subsistema (iluminación, ventilación, riego y control electrónico), expresado en Wh y eficiencia relativa.  
+
+Adicionalmente, se efectuarán **simulaciones comparativas** entre estrategias de control y configuraciones de hardware, considerando su impacto sobre la estabilidad ambiental, el consumo energético y la respuesta temporal.  
+
+Finalmente, se evaluará la **escalabilidad del sistema**, analizando costos, modularidad, capacidad de expansión a mayores volúmenes de cultivo y factibilidad de implementación de alimentación solar u otras fuentes sostenibles.
 
 ### 8. Cronograma de actividades
 
-| Actividad / Semana                     | 1    | 2    | 3    | 4    | 5    | 6    | 7    | 8    | 9    | 10   | 11   | 12   | 13   | 14   | 15   | 16   |
-| -------------------------------------- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
-| 1. Revisión bibliográfica y requisitos | X    | X    |      |      |      |      |      |      |      |      |      |      |      |      |      |      |
-| 2. Diseño y compra de hardware (BOM)   |      | X    | X    |      |      |      |      |      |      |      |      |      |      |      |      |      |
-| 3. Montaje físico del gabinete         |      |      | X    | X    |      |      |      |      |      |      |      |      |      |      |      |      |
-| 4. Firmware MVP (ON/OFF)               |      |      |      | X    | X    |      |      |      |      |      |      |      |      |      |      |      |
-| 5. Integración sensores T/H y luz      |      |      |      |      | X    | X    |      |      |      |      |      |      |      |      |      |      |
-| 6. Telemetría e interfaz (Flask/React) |      |      |      |      |      | X    | X    |      |      |      |      |      |      |      |      |      |
-| 7. Modelado y simulaciones (Python)    |      |      |      |      |      |      | X    | X    | X    |      |      |      |      |      |      |      |
-| 8. Integración riego / pH              |      |      |      |      |      |      |      | X    | X    | X    |      |      |      |      |      |      |
-| 9. Diseño alimentación solar           |      |      |      |      |      |      |      |      | X    | X    | X    |      |      |      |      |      |
-| 10. Pruebas experimentales (24h–2sem)  |      |      |      |      |      |      |      |      |      | X    | X    | X    | X    |      |      |      |
-| 11. Análisis de datos y redacción      |      |      |      |      |      |      |      |      |      |      | X    | X    | X    | X    | X    |      |
-| 12. Preparación defensa y entrega      |      |      |      |      |      |      |      |      |      |      |      |      |      | X    | X    | X    |
+| Actividad / Semana                                       | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 |
+| -------------------------------------------------------- | - | - | - | - | - | - | - | - | - | -- | -- | -- | -- | -- | -- | -- |
+| 1. Revisión bibliográfica y requisitos                   | X | X |   |   |   |   |   |   |   |    |    |    |    |    |    |    |
+| 2. Diseño hardware y adquisición (BOM)                   |   | X | X |   |   |   |   |   |   |    |    |    |    |    |    |    |
+| 3. Implementación del prototipo MVP                      |   |   | X | X | X |   |   |   |   |    |    |    |    |    |    |    |
+| 4. Desarrollo de software y telemetría                   |   |   |   |   | X | X | X |   |   |    |    |    |    |    |    |    |
+| 5. Modelado y simulación de control                      |   |   |   |   |   |   | X | X |   |    |    |    |    |    |    |    |
+| 6. Integración del sistema de riego                      |   |   |   |   |   |   |   | X | X | X  |    |    |    |    |    |    |
+| 7. Pruebas experimentales y recolección de datos         |   |   |   |   |   |   |   |   | X | X  | X  | X  |    |    |    |    |
+| 8. Análisis de resultados y evaluación del cultivo        |   |   |   |   |   |   |   |   |   |    | X  | X  | X  | X  |    |    |
+| 9. Documentación y presentación final                    |   |   |   |   |   |   |   |   |   |    |    |    |   | X  | X  | X  |
 
 ### 9. Resultados y aportes
 
-###### **Resultados esperados:**
+- **Prototipo funcional del sistema indoor** (1 × 1 × 1.5 m) con control automático de iluminación, ventilación y riego, equipado con sensores para monitorear las principales variables ambientales y de operación (como temperatura, humedad, luminosidad, pH y consumo energético), además de registro continuo de datos.  
+- **Firmware modular documentado**, estructurado en controladores, API de comunicación y rutinas de seguridad, diseñado para facilitar mantenimiento, escalabilidad e integración con nuevas variables o actuadores.  
+- **Dashboard web de monitoreo y gestión**, con visualización en tiempo real, registro histórico, alarmas configurables y herramientas para análisis comparativo.  
+- **Modelos y simulaciones del comportamiento del sistema**, considerando la respuesta de las variables ambientales ante diferentes estrategias de control y condiciones de operación.  
+- **Evaluación del rendimiento energético**, incluyendo balance de consumo, estimación de eficiencia y **dimensionamiento preliminar de un sistema fotovoltaico**, con análisis de costos y autonomía.  
+- **Documentación técnica completa**, compuesta por el informe de tesis, manual de montaje y operación, y un artículo técnico en formato corto con resultados experimentales validados.
 
-- Prototipo funcional de gabinete indoor (1×1×1.5m) con: control de iluminación, control de ventilación, riego automático básico, sensores T/H, sensor de luz, sensor pH integrado y registro de datos.
-- Firmware modular documentado (drivers, API de control, lógica de seguridad).
-- Dashboard web para monitoreo y registr.
-- Modelos y simulaciones en Python del comportamiento térmico/higrométrico del gabinete y comparativa de estrategias de control.
-- Análisis energético con propuesta de esquema de alimentación dual (red + solar) y dimensionamiento preliminar del sistema fotovoltáico.
-- Documento final de tesis, manual técnico de montaje y un artículo en formato corto (con resultados experimentales).
+###### **Aportes específicos**
 
-###### **Aportes específicos:**
-
-- Demostrar viabilidad técnica y económica de una solución de automatización de bajo costo para pequeños productores.
-- Metodología reproducible para integración hardware–software y criterios de diseño para operación con energía solar.
-- Conjunto de datos experimentales para análisis comparativo de estrategias de control en un entorno controlado.
+- **Validación técnica y económica** de una solución de automatización de bajo costo aplicable a pequeños productores, laboratorios o entornos educativos.  
+- **Metodología reproducible** para la integración hardware–software y desarrollo de sistemas de control ambiental, adaptable a diversas condiciones y fuentes de energía.  
+- **Generación de un conjunto de datos experimentales estandarizados**, útiles para análisis de comportamiento, evaluación de estrategias de control y desarrollo de algoritmos basados en inteligencia artificial.  
+- **Propuesta de arquitectura escalable y modular**, con criterios técnicos para diseño, mantenimiento y expansión del sistema en función de nuevas variables o requerimientos energéticos.
 
 ### 10. Bibliografía
+
+- Cole, K. S., & Cole, R. H. (1941). Dispersion and absorption in dielectrics. I. Alternating-current characteristics. *Journal of Chemical Physics*, 9, 341–351. :contentReference[oaicite:0]{index=0}
+
+- Barsoukov, E., & Macdonald, J. R. (eds.). *Impedance Spectroscopy: Theory, Experiment, and Applications*. Wiley. :contentReference[oaicite:1]{index=1}
+
+- Van Haeverbeke, M. (2023). Plant impedance spectroscopy: a review of modeling approaches. *Frontiers in Plant Science*, 13, 1187573. :contentReference[oaicite:2]{index=2}
+
+- Ma, X., Bifano, L., & Fischerauer, G. (2023). Evaluation of electrical impedance spectra by long short-term memory to estimate nitrate concentrations in soil. *Sensors*, 23(4), 2172. :contentReference[oaicite:3]{index=3}
+
+- Analog Devices. AD5933 impedance converter & network analyzer — datasheet & product page. :contentReference[oaicite:4]{index=4}
+
+- Analog Devices. AD5940 / AD5941 analog front end (AFE) — datasheet & product page. :contentReference[oaicite:5]{index=5}
+
+- Espressif Systems. *ESP hardware design guidelines* (esp32). :contentReference[oaicite:6]{index=6}
+
+- Navarro, E., Costa, N., & Pereira, A. (2020). A systematic review of IoT solutions for smart farming. *Sensors*, 20(15), 4231. :contentReference[oaicite:7]{index=7}
+
+- NIST. *NIST Handbook 150-2E: National Voluntary Laboratory Accreditation Program — Calibration Laboratories (technical guide for optical radiation measurements)*. (NIST Handbook 150-2E). :contentReference[oaicite:8]{index=8}
+
+- Goodman, J. W. (2017). *Introduction to Fourier Optics* (4th ed.). W. H. Freeman. :contentReference[oaicite:9]{index=9}
+
+- Gonzalez, R. C., & Woods, R. E. (2018). *Digital Image Processing* (4th ed.). Pearson. :contentReference[oaicite:10]{index=10}
+
+- Zwinkels, J. C., et al. (2016). Mise en pratique for the definition of the candela and associated derived units for photometric and radiometric quantities in the SI. *Metrologia*, 53, G1. :contentReference[oaicite:11]{index=11}
+
+- Bishop, C. M. (2006). *Pattern Recognition and Machine Learning*. Springer. :contentReference[oaicite:12]{index=12}
+
+- Mahalanobis, P. C. (1936). On the generalized distance in statistics. *Proceedings of the National Institute of Sciences (Calcutta)*, 2, 49–55. :contentReference[oaicite:13]{index=13}
