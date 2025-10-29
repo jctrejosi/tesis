@@ -11,14 +11,19 @@
 
 ### 3. Introducción y justificación
 
-Los sistemas de agricultura controlada (CEA — Controlled Environment Agriculture) permiten mejorar el rendimiento y calidad de cultivos mediante control de iluminación, temperatura, humedad y riego. Sin embargo, las soluciones comerciales suelen ser costosas y poco adaptadas a pequeños productores rurales.
-Este trabajo propone diseñar y validar un prototipo de bajo costo, modular y escalable que automatice variables críticas en un gabinete indoor (1 m × 1 m × 1.5 m), usando microcontroladores económicos (ESP32), sensores comerciales y estrategias de control (ON/OFF, histéresis, PID).
+La agricultura de entorno controlado (CEA, *Controlled Environment Agriculture*) ha demostrado ser una alternativa eficaz para optimizar la producción vegetal al permitir la regulación precisa de variables ambientales como la temperatura, humedad, iluminación y riego. Sin embargo, la mayoría de las soluciones comerciales presentan altos costos, configuraciones cerradas y poca flexibilidad para adaptarse a las condiciones y necesidades de pequeños productores o proyectos experimentales.
 
-El proyecto aporta una solución replicable orientada a pequeños agricultores y proyectos de investigación académica: reduce intervención manual, permite registro y telemetría, y considera opciones de alimentación dual (red eléctrica y energía solar) para entornos con suministro inestable. Además aporta conocimiento metodológico (modelado físico y de control) y evidencia experimental para la toma de decisiones en cultivos controlados.
+En este contexto, se desarrolla un **prototipo de cultivo indoor automatizado, modular y de bajo costo**, basado en microcontroladores, sensores de variables ambientales y estrategias mixtas de control (**ON/OFF, histéresis y PID**). El sistema busca mantener condiciones óptimas en un gabinete de cultivo de **1 m × 1 m × 1.5 m**, registrando y transmitiendo datos en tiempo real mediante una arquitectura escalable orientada a **telemetría, análisis y visualización**.
+
+Este proyecto se distingue por integrar el **modelado físico del entorno de cultivo** con la **validación experimental de estrategias de control**, permitiendo cuantificar la respuesta dinámica del sistema ante perturbaciones térmicas y de humedad. Los resultados obtenidos —incluyendo la caracterización eléctrica del medio y la estimación de parámetros del modelo de Cole— evidencian la viabilidad técnica del enfoque propuesto para el manejo automatizado de cultivos a pequeña escala.
+
+El trabajo no solo ofrece una **solución tecnológica replicable**, sino también una **base metodológica** para futuras implementaciones de inteligencia artificial en la regulación adaptativa de variables ambientales. Con ello, se contribuye a la democratización del acceso a tecnologías de agricultura controlada, fortaleciendo la sostenibilidad, la experimentación académica y la capacidad de innovación en entornos de recursos limitados.
 
 ### 4. Objetivo general
 
-Diseñar, implementar y validar un sistema automatizado y escalable que controle iluminación, ventilación, riego y parámetros del medio (temperatura, humedad y pH) en un gabinete indoor, integrando hardware (ESP32, sensores y actuadores), firmware modular y modelos de control, con la opción de alimentación eléctrica por red o por panel solar.
+Diseñar, implementar y validar un **sistema automatizado, modular y escalable** para el control integral de un **gabinete de cultivo indoor**, capaz de regular de forma precisa la **iluminación, ventilación, riego y variables del medio (temperatura, humedad, tierra fértil)**.  
+El sistema integrará **hardware basado en microcontroladores ESP32**, sensores y actuadores comerciales, junto con un **firmware estructurado y modelos de control (ON/OFF, histéresis y PID)**, garantizando **operación continua mediante alimentación dual** desde la red eléctrica o un sistema **fotovoltáico**.
+
 
 ### 5. Objetivos específicos
 
@@ -38,7 +43,11 @@ Diseñar, implementar y validar un sistema automatizado y escalable que controle
 
 ### 6. Antecedentes
 
-La literatura sobre CEA muestra avances en iluminación LED de espectro específico, control climático mediante PID y enfoques IoT para monitoreo remoto. Revisiones recientes sostienen que la selección de espectro y la gestión del fotoperiodo impactan significativamente rendimiento y calidad (revisiones en horticultura controlada). Trabajos aplicados demuestran prototipos basados en microcontroladores (ESP32/Arduino) para invernaderos y sistemas hidropónicos, aportando arquitecturas de telemetría y control. En control, numerosos estudios comparan ON/OFF, histogramas con histéresis y controladores PID o adaptativos para mantener temperatura y humedad en rangos óptimos. Finalmente, informes técnicos de energía (NREL y similares) discuten viabilidad de integrar paneles solares y bancos de baterías en instalaciones de CEA a pequeña escala.
+Los sistemas de **agricultura en ambiente controlado (CEA)** han evolucionado hacia configuraciones más eficientes gracias a los avances en **iluminación LED de espectro ajustable**, **control climático automatizado** y **plataformas IoT** para supervisión remota. Diversas revisiones científicas resaltan que la **selección del espectro lumínico** y la **gestión del fotoperiodo** influyen directamente en el crecimiento, la morfología y la calidad de los cultivos.  
+
+A nivel aplicado, múltiples estudios reportan el desarrollo de **prototipos de bajo costo** basados en **microcontroladores (ESP32, Arduino)**, orientados a invernaderos y sistemas hidropónicos, los cuales integran sensores ambientales, módulos de comunicación y arquitecturas de telemetría y control. En cuanto a las estrategias de regulación, se han comparado enfoques **ON/OFF**, **por histéresis** y **PID/adaptativos** para mantener la temperatura y humedad dentro de los rangos óptimos, destacando el compromiso entre **simplicidad, estabilidad y consumo energético**.  
+
+Finalmente, organismos técnicos como el **NREL** y otras agencias energéticas han documentado la **factibilidad de implementar sistemas fotovoltáicos** con bancos de baterías para alimentar instalaciones CEA de pequeña escala, lo que abre la posibilidad de **autonomía energética** en entornos rurales o con suministro inestable.
 
 ### 7. Metodología
 
