@@ -42,11 +42,13 @@ El sistema integrará **hardware usando como microcontrolador un ESP32**, sensor
 
 ### 6. Antecedentes
 
-Los sistemas de **agricultura en ambiente controlado (CEA)** han evolucionado hacia configuraciones más eficientes gracias a los avances en **iluminación LED de espectro ajustable**, **control del clima automatizado** y **plataformas IoT** para supervisión remota. Diversas revisiones científicas resaltan como las **condiciones climáticas**, **el espectro lumínico** y la **gestión del fotoperiodo** influyen directamente en el crecimiento, la morfología y la calidad de los cultivos.  
+Los sistemas de agricultura en ambiente controlado (CEA) han mostrado un desarrollo acelerado en la última década, impulsado por mejoras en la iluminación LED, sensores de bajo costo y plataformas IoT que facilitan la instrumentación y el control del microclima. Revisiones recientes del estado del arte muestran que gran parte de la investigación se concentra en la interacción planta-luz y en optimizaciones energéticas para reducir el coste operativo, aunque persisten brechas en soluciones de bajo costo y alta modularidad adecuadas para pequeña escala. 
 
-A nivel aplicado, múltiples estudios reportan el desarrollo de **prototipos de bajo costo** basados en **microcontroladores**, orientados a invernaderos y sistemas hidropónicos, los cuales integran sensores ambientales, módulos de comunicación y arquitecturas de telemetría y control. En cuanto a las estrategias de regulación, se han comparado enfoques **ON/OFF** **por histéresis** y **PID/adaptativos** para mantener la temperatura y humedad dentro de los rangos óptimos, destacando el compromiso entre **simplicidad, estabilidad y consumo energético**.  
+En el plano del control, la literatura compara ampliamente soluciones simples (ON/OFF por histéresis) frente a controladores PID y variantes adaptativas, identificando un compromiso clásico entre complejidad de diseño, estabilidad y consumo energético; estudios experimentales demuestran que la elección y ajuste del controlador influyen de forma significativa en el sobrepico térmico, el tiempo de asentamiento y la oscilación del sistema. 
 
-Finalmente, organismos técnicos como el **NREL** y otras agencias energéticas han documentado la **factibilidad de implementar sistemas fotovoltáicos** con bancos de baterías para alimentar instalaciones CEA de pequeña escala, lo que abre la posibilidad de **autonomía energética** en entornos rurales o con suministro inestable.
+Para el monitoreo del estado del sustrato y de la planta, la espectroscopía de impedancia (EIS) ha emergido como una técnica no destructiva valiosa para inferir propiedades fisiológicas y de humedad del medio, y las revisiones recientes describen tanto los modelos analíticos (Cole y variantes) como enfoques basados en aprendizaje automático para interpretación de espectros. 
+
+Por otro lado, la proliferación de prototipos basados en microcontroladores (p. ej. ESP32) evidencia la viabilidad de arquitecturas telemétricas y dashboards de bajo coste; sin embargo, muchos proyectos publicados carecen de evaluaciones energéticas completas y de estudios de escalabilidad y seguridad eléctrica, lo que limita su transferencia a entornos productivos. Finalmente, los estudios de integración fotovoltaica y almacenamiento determinan que la reducción de costes en módulos y baterías mejora la factibilidad de soluciones autónomas a pequeña escala, aunque el dimensionamiento debe considerar picos de demanda por iluminación y bombas.
 
 ### 7. Metodología
 
@@ -131,8 +133,6 @@ Finalmente, organismos técnicos como el **NREL** y otras agencias energéticas 
 - Ma, X., Bifano, L., & Fischerauer, G. (2023). Evaluation of electrical impedance spectra by long short-term memory to estimate nitrate concentrations in soil. *Sensors*, 23(4), 2172.
 
 - Analog Devices. AD5933 impedance converter & network analyzer — datasheet & product page.
-
-- Analog Devices. AD5940 / AD5941 analog front end (AFE) — datasheet & product page.
 
 - Espressif Systems. *ESP hardware design guidelines* (esp32).
 
