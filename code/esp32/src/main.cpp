@@ -1,70 +1,66 @@
 #include <WiFi.h>
-#include <HTTPClient.h>
+#include <WebSocketsClient.h>
 
 #define LED_PIN 2
 
 const char* ssid = "Araña";
 const char* password = "";
 
-const char* api = "https://youth-horse-journalist-packing.trycloudflare.com/api/led/status";
+WebSocketsClient webSocket;
+
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+
+  switch (type) {
+
+    case WStype_CONNECTED:
+      Serial.println("websocket conectado");
+      break;
+
+    case WStype_DISCONNECTED:
+      Serial.println("websocket desconectado");
+      break;
+
+    case WStype_TEXT:
+      payload[length] = '\0';
+      Serial.print("mensaje recibido: ");
+      Serial.println((char*)payload);
+
+      if (strcmp((char*)payload, "on") == 0) {
+        digitalWrite(LED_PIN, HIGH);
+      }
+      else if (strcmp((char*)payload, "off") == 0) {
+        digitalWrite(LED_PIN, LOW);
+      }
+      break;
+  }
+}
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.print("reset reason: ");
-  Serial.println(esp_reset_reason());
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  Serial.println("conectando a wifi...");
   WiFi.begin(ssid, password);
-
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
 
   Serial.println("\nwifi conectado");
-  Serial.print("ip local: ");
-  Serial.println(WiFi.localIP());
+
+  // WebSocket SIN TLS
+  webSocket.begin(
+    "timothy-lap-bundle-twelve.trycloudflare.com",
+    80,
+    "/ws"
+  );
+
+  webSocket.onEvent(webSocketEvent);
+  webSocket.setReconnectInterval(5000);
 }
 
 void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("consultando api...");
-
-    WiFiClientSecure client;
-    client.setInsecure();   // <-- CLAVE
-
-    HTTPClient http;
-    http.begin(client, api);
-
-    int code = http.GET();
-    Serial.print("codigo http: ");
-    Serial.println(code);
-
-    if (code == 200) {
-      String payload = http.getString();
-      Serial.print("respuesta: ");
-      Serial.println(payload);
-
-      if (payload.indexOf("on") >= 0) {
-        Serial.println("led ON");
-        digitalWrite(LED_PIN, HIGH);
-      } else {
-        Serial.println("led OFF");
-        digitalWrite(LED_PIN, LOW);
-      }
-    } else {
-      Serial.println("error al consultar api");
-    }
-
-    http.end();
-  } else {
-    Serial.println("wifi desconectado");
-  }
-
-  Serial.println("----");
-  delay(2000);
+  webSocket.loop();
 }

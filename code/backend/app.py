@@ -1,24 +1,33 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
+from flask_sock import Sock
 
 app = Flask(__name__)
+sock = Sock(app)
 
-led_state = "off"
+clients = set()
 
-@app.route("/api/led/on", methods=["GET"])
+@sock.route('/ws')
+def ws(ws):
+    clients.add(ws)
+    try:
+        while True:
+            ws.receive()  # mantiene conexión viva
+    except:
+        pass
+    finally:
+        clients.remove(ws)
+
+@app.route("/led/on")
 def led_on():
-    global led_state
-    led_state = "on"
-    return jsonify(status="on")
+    for ws in clients:
+        ws.send("on")
+    return jsonify(state="on")
 
-@app.route("/api/led/off", methods=["GET"])
+@app.route("/led/off")
 def led_off():
-    global led_state
-    led_state = "off"
-    return jsonify(status="off")
-
-@app.route("/api/led/status", methods=["GET"])
-def led_status():
-    return jsonify(status=led_state)
+    for ws in clients:
+        ws.send("off")
+    return jsonify(state="off")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
