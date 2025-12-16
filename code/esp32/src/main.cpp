@@ -1,66 +1,39 @@
-#include <WiFi.h>
-#include <WebSocketsClient.h>
+#include <Arduino.h>
+#include <math.h>
 
-#define LED_PIN 2
+#define THERMISTOR_PIN 15  // D15
+#define R_FIXED 10000.0    // resistencia fija del divisor en ohm
+#define BETA 3950.0        // coeficiente Beta del NTC
+#define R0 10000.0         // resistencia NTC a 25°C
+#define T0 298.15          // 25°C en Kelvin (25°C)
 
-const char* ssid = "Araña";
-const char* password = "";
+// Función para leer temperatura en °C
+float leerTemperatura() {
+  int adcValue = analogRead(THERMISTOR_PIN);  // 0-4095
+  float voltage = adcValue * (3.3 / 4095.0);
 
-WebSocketsClient webSocket;
+  // Evitar división por cero
+  if (voltage <= 0.0) voltage = 0.001;
 
-void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  // Calcular resistencia del NTC
+  float R_NTC = R_FIXED * (3.3 / voltage - 1.0);
 
-  switch (type) {
+  // Fórmula Beta para temperatura
+  float tempK = 1.0 / (log(R_NTC / R0) / BETA + 1.0 / T0);
 
-    case WStype_CONNECTED:
-      Serial.println("websocket conectado");
-      break;
-
-    case WStype_DISCONNECTED:
-      Serial.println("websocket desconectado");
-      break;
-
-    case WStype_TEXT:
-      payload[length] = '\0';
-      Serial.print("mensaje recibido: ");
-      Serial.println((char*)payload);
-
-      if (strcmp((char*)payload, "on") == 0) {
-        digitalWrite(LED_PIN, HIGH);
-      }
-      else if (strcmp((char*)payload, "off") == 0) {
-        digitalWrite(LED_PIN, LOW);
-      }
-      break;
-  }
+  return tempK - 273.15;  // Celsius
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
-
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("\nwifi conectado");
-
-  // WebSocket SIN TLS
-  webSocket.begin(
-    "timothy-lap-bundle-twelve.trycloudflare.com",
-    80,
-    "/ws"
-  );
-
-  webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
+  Serial.println("Leyendo temperatura...");
 }
 
 void loop() {
-  webSocket.loop();
+  float tempC = leerTemperatura();
+  Serial.print("Temperatura: ");
+  Serial.print(tempC);
+  Serial.println(" °C");
+  delay(1000);  // leer cada segundo
 }
