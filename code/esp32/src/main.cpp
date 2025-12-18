@@ -1,39 +1,59 @@
 #include <Arduino.h>
 #include <math.h>
 
-#define THERMISTOR_PIN 15  // D15
-#define R_FIXED 10000.0    // resistencia fija del divisor en ohm
-#define BETA 3950.0        // coeficiente Beta del NTC
-#define R0 10000.0         // resistencia NTC a 25°C
-#define T0 298.15          // 25°C en Kelvin (25°C)
+#define THERMISTOR_PIN 15   // D15 (ADC)
+#define RELAY_PIN 33 // PIN DE SALIDA (NO 34)
 
-// Función para leer temperatura en °C
+#define R_FIXED 10000.0
+#define BETA 3950.0
+#define R0 10000.0
+#define T0 298.15
+#define VCC 3.3
+
+#define TEMP_ON 40.0        // umbral en °C
+
 float leerTemperatura() {
-  int adcValue = analogRead(THERMISTOR_PIN);  // 0-4095
-  float voltage = adcValue * (3.3 / 4095.0);
+  int adcValue = analogRead(THERMISTOR_PIN);
+  float voltage = adcValue * (VCC / 4095.0);
 
-  // Evitar división por cero
-  if (voltage <= 0.0) voltage = 0.001;
+  if (voltage <= 0.01 || voltage >= VCC - 0.01) return NAN;
 
-  // Calcular resistencia del NTC
-  float R_NTC = R_FIXED * (3.3 / voltage - 1.0);
+  // NTC abajo, resistencia arriba
+  float R_NTC = R_FIXED * (voltage / (VCC - voltage));
 
-  // Fórmula Beta para temperatura
   float tempK = 1.0 / (log(R_NTC / R0) / BETA + 1.0 / T0);
-
-  return tempK - 273.15;  // Celsius
+  return tempK - 273.15;
 }
 
 void setup() {
   Serial.begin(115200);
+  analogReadResolution(12);
+
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW);   // relé apagado
+
   delay(1000);
-  Serial.println("Leyendo temperatura...");
+  Serial.println("Sistema iniciado");
 }
 
 void loop() {
-  float tempC = leerTemperatura();
-  Serial.print("Temperatura: ");
-  Serial.print(tempC);
-  Serial.println(" °C");
-  delay(1000);  // leer cada segundo
+  float t = leerTemperatura();
+
+  if (!isnan(t)) {
+    Serial.print("Temperatura: ");
+    Serial.print(t);
+    Serial.println(" °C");
+
+    if (t >= TEMP_ON) {
+      digitalWrite(RELAY_PIN, HIGH);
+      Serial.println("Relé ON");
+    } else {
+      digitalWrite(RELAY_PIN, LOW);
+      Serial.println("Relé OFF");
+    }
+  } else {
+    Serial.println("Lectura inválida");
+  }
+
+  delay(1000);
 }
