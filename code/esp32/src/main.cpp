@@ -1,66 +1,54 @@
-#include <WiFi.h>
-#include <WebSocketsClient.h>
+#include <Arduino.h>
 
-#define LED_PIN 2
+#include "mqtt_client.h"
+#include "config.h"
 
-const char* ssid = "Araña";
-const char* password = "";
+#include "bme680_driver.h"
+#include "bme680_publisher.h"
 
-WebSocketsClient webSocket;
+/*
+|--------------------------------------------------------------------------
+| instancias de drivers
+|--------------------------------------------------------------------------
+*/
+BME680Driver bme680_driver;
 
-void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+/*
+|--------------------------------------------------------------------------
+| setup sensores
+|--------------------------------------------------------------------------
+*/
+void setup_sensors() {
+    bme680_driver.set_simulation_mode(true);
 
-  switch (type) {
-
-    case WStype_CONNECTED:
-      Serial.println("websocket conectado");
-      break;
-
-    case WStype_DISCONNECTED:
-      Serial.println("websocket desconectado");
-      break;
-
-    case WStype_TEXT:
-      payload[length] = '\0';
-      Serial.print("mensaje recibido: ");
-      Serial.println((char*)payload);
-
-      if (strcmp((char*)payload, "on") == 0) {
-        digitalWrite(LED_PIN, HIGH);
-      }
-      else if (strcmp((char*)payload, "off") == 0) {
-        digitalWrite(LED_PIN, LOW);
-      }
-      break;
-  }
+    if (!bme680_driver.begin()) {
+        Serial.println("Error inicializando BME680");
+    }
 }
 
+/*
+|--------------------------------------------------------------------------
+| setup principal
+|--------------------------------------------------------------------------
+*/
 void setup() {
-  Serial.begin(115200);
-  delay(1000);
+    Serial.begin(115200);
 
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+    setup_sensors();
 
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("\nwifi conectado");
-
-  // WebSocket SIN TLS
-  webSocket.begin(
-    "timothy-lap-bundle-twelve.trycloudflare.com",
-    80,
-    "/ws"
-  );
-
-  webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
+    setup_wifi();
+    setup_mqtt();
 }
 
+/*
+|--------------------------------------------------------------------------
+| loop principal
+|--------------------------------------------------------------------------
+*/
 void loop() {
-  webSocket.loop();
+    mqtt_loop();
+
+    publish_bme680_data(bme680_driver);
+
+    delay(5000);
 }
