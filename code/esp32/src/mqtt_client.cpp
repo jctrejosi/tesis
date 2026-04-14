@@ -15,30 +15,54 @@ void setup_wifi() {
         delay(500);
 
         if (millis() - start_attempt > 10000) {
-            break;
+            Serial.println("WiFi connection timeout");
+            return;
         }
     }
+
+    Serial.println("WiFi connected");
 }
 
 void setup_mqtt() {
     client.setServer(MQTT_BROKER, MQTT_PORT);
 }
 
-void reconnect_mqtt() {
-    while (!client.connected()) {
-        client.connect("ESP32GrowBox");
-        delay(500);
+bool reconnect_mqtt() {
+    if (client.connected()) return true;
+
+    Serial.println("Connecting to MQTT...");
+
+    bool ok = client.connect("ESP32GrowBox");
+
+    if (!ok) {
+        Serial.println("MQTT connection failed");
+        return false;
     }
+
+    Serial.println("MQTT connected");
+    return true;
 }
 
 bool publish_message(const char* topic, const char* payload) {
     if (!client.connected()) {
-        reconnect_mqtt();
+        if (!reconnect_mqtt()) {
+            return false;
+        }
     }
 
-    return client.publish(topic, payload);
+    bool ok = client.publish(topic, payload);
+
+    if (!ok) {
+        Serial.println("Publish failed");
+    }
+
+    return ok;
 }
 
 void mqtt_loop() {
+    if (!client.connected()) {
+        reconnect_mqtt();
+    }
+
     client.loop();
 }

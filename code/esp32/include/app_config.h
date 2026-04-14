@@ -5,5 +5,5 @@
 #define WIFI_SSID "Araña"
 #define WIFI_PASSWORD ""
 
-#define MQTT_BROKER "192.168.1.100"
+#define MQTT_BROKER "10.167.235.203"
 #define MQTT_PORT 1883
