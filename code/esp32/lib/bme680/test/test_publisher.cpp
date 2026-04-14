@@ -1,8 +1,7 @@
-// /lib/bme680/test/test_bme680_publisher.cpp
-
 #include <unity.h>
 #include "bme680_driver.h"
 #include "bme680_publisher.h"
+#include <esp32-hal.h>
 
 BME680Driver bme680_driver;
 
