@@ -29,4 +29,17 @@ namespace sensors {
         }
     }
 
+    void publish_now() {
+        bme680::BME680Data data = bme.read();
+        bme680::Publisher::publish(data);
+    }
+
+    void apply_bme680_config(const bme680::Config& cfg) {
+        if (bme.set_config(cfg)) {
+            Serial.println("[BME680] config actualizada");
+        } else {
+            Serial.println("[BME680] config inválida");
+        }
+    }
+
 }

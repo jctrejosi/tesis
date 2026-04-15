@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include "app_config.h"
+#include "sensors/bme680/command_handler.h"
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -32,11 +33,15 @@ void setup_wifi() {
 
 void setup_mqtt() {
     client.setServer(MQTT_BROKER, MQTT_PORT);
+    client.setCallback(mqtt_callback);
 }
 
 bool reconnect_mqtt() {
     if (!wifi_connected) return false;
     if (client.connected()) return true;
+
+    client.subscribe("growbox/bme680/read");
+    client.subscribe("growbox/bme680/config");
 
     if (millis() - last_mqtt_attempt < retry_interval) {
         return false;
@@ -77,4 +82,22 @@ void mqtt_loop() {
     }
 
     client.loop();
+}
+
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+    char message[256];
+
+    memcpy(message, payload, length);
+    message[length] = '\0';
+
+    Serial.print("MQTT recibido: ");
+    Serial.println(topic);
+
+    if (strcmp(topic, "growbox/bme680/read") == 0) {
+        bme680::handle_read_command();
+    }
+
+    else if (strcmp(topic, "growbox/bme680/config") == 0) {
+        bme680::handle_config_command(message);
+    }
 }
