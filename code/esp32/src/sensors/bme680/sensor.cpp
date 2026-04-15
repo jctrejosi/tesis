@@ -1,6 +1,6 @@
 #include "sensors/bme680/sensor.h"
 #include <Arduino.h>
-#include "storage/config_store.h"
+#include "sensors/bme680/config_store.h"
 
 namespace bme680 {
 

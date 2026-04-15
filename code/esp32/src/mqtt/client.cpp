@@ -3,6 +3,7 @@
 #include <PubSubClient.h>
 #include "app_config.h"
 #include "sensors/bme680/command_handler.h"
+#include "mqtt/router.h"
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -37,11 +38,13 @@ void setup_mqtt() {
 }
 
 bool reconnect_mqtt() {
-    if (!wifi_connected) return false;
-    if (client.connected()) return true;
+    if (!wifi_connected) {
+        return false;
+    }
 
-    client.subscribe("growbox/bme680/read");
-    client.subscribe("growbox/bme680/config");
+    if (client.connected()) {
+        return true;
+    }
 
     if (millis() - last_mqtt_attempt < retry_interval) {
         return false;
@@ -53,6 +56,14 @@ bool reconnect_mqtt() {
 
     if (client.connect("ESP32GrowBox")) {
         Serial.println("MQTT connected");
+
+        // wildcard subscriptions:
+        // cualquier sensor con comando read
+        client.subscribe("growbox/+/read");
+
+        // cualquier sensor con comando config
+        client.subscribe("growbox/+/config");
+
         return true;
     }
 
@@ -93,11 +104,5 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     Serial.print("MQTT recibido: ");
     Serial.println(topic);
 
-    if (strcmp(topic, "growbox/bme680/read") == 0) {
-        bme680::handle_read_command();
-    }
-
-    else if (strcmp(topic, "growbox/bme680/config") == 0) {
-        bme680::handle_config_command(message);
-    }
+    route_message(topic, message);
 }

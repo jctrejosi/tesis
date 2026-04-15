@@ -1,7 +1,5 @@
 #pragma once
 
-#define MQTT_TOPIC_BME680 "growbox/bme680"
-
 #define WIFI_SSID "Araña"
 #define WIFI_PASSWORD ""
 
