@@ -7,16 +7,15 @@
 namespace bme680 {
 
     bool Publisher::publish(const BME680Data& data) {
-
-        JsonDocument json;
+        StaticJsonDocument<128> json;
 
         json["temperature"] = data.temperature;
-        json["humidity"]    = data.humidity;
-        json["pressure"]    = data.pressure;
-        json["gas"]         = data.gas_resistance;
+        json["humidity"] = data.humidity;
+        json["pressure"] = data.pressure;
+        json["gas"] = data.gas_resistance;
 
         char payload[128];
-        serializeJson(json, payload);
+        serializeJson(json, payload, sizeof(payload));
 
         bool ok = publish_message("growbox/bme680", payload);
 

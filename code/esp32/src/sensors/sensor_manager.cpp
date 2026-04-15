@@ -1,27 +1,25 @@
 #include "sensors/sensor_manager.h"
 
-#include "bme680/driver.h"
-#include "bme680/publisher.h"
+#include "sensors/bme680/sensor.h"
+#include "sensors/bme680/publisher.h"
 
 #include <Arduino.h>
 
 namespace sensors {
 
-    static bme680::BME680Driver bme;
-
+    static bme680::Sensor bme;
     static unsigned long last_sample = 0;
-    static unsigned long interval = 5000;
 
     void begin() {
-        bme.set_simulation_mode(true);
-
-        if (!bme.begin()) {
-            Serial.println("BME680 init failed");
-        }
+        bme.init();
+        last_sample = millis();
     }
 
     void update() {
         unsigned long now = millis();
+
+        bme680::Config cfg = bme.get_config();
+        unsigned long interval = cfg.interval_ms;
 
         if (now - last_sample >= interval) {
             last_sample = now;

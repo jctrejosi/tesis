@@ -3,56 +3,35 @@
 
 namespace bme680 {
 
-    // defaults del sistema (centralizados aquí)
-    static Config default_config() {
-        Config cfg;
-
-        // --- sistema ---
-        cfg.interval_ms = 10000;
-        cfg.simulation = false;
-
-        // --- oversampling (balanceado recomendado Bosch) ---
-        cfg.temp_oversample = 8;
-        cfg.hum_oversample = 2;
-        cfg.press_oversample = 4;
-
-        // --- filtro IIR (suavizado medio) ---
-        cfg.iir_filter = 3;
-
-        // --- gas sensor (VOC) ---
-        cfg.gas_heater_temp = 320;
-        cfg.gas_heater_duration = 150;
-
-        return cfg;
-    }
-
-    // opcional: acceso a defaults globales
     Config get_default_config() {
-        return default_config();
+        return Config{};
     }
 
-    // validación básica de rangos (evita basura desde MQTT)
+    static bool is_valid_oversample(uint8_t value) {
+        return value == 0 || value == 1 || value == 2 || value == 4 || value == 8 || value == 16;
+    }
+
+    static bool is_valid_filter(uint8_t value) {
+        return value == 0 || value == 1 || value == 3 || value == 7 ||
+            value == 15 || value == 31 || value == 63 || value == 127;
+    }
+
     bool validate_config(const Config& cfg) {
+        if (cfg.interval_ms < 1000) return false;
+        if (cfg.interval_ms > 3600000) return false;
 
-        if (cfg.interval_ms < 1000) return false;          // mínimo 1s
-        if (cfg.interval_ms > 3600000) return false;       // máximo 1h
+        if (!is_valid_oversample(cfg.temp_oversample)) return false;
+        if (!is_valid_oversample(cfg.hum_oversample)) return false;
+        if (!is_valid_oversample(cfg.press_oversample)) return false;
 
-        if (cfg.temp_oversample > 16) return false;
-        if (cfg.hum_oversample > 16) return false;
-        if (cfg.press_oversample > 16) return false;
+        if (!is_valid_filter(cfg.iir_filter)) return false;
 
-        if (cfg.iir_filter > 127) return false;
-
-        if (cfg.gas_heater_temp < 200 || cfg.gas_heater_temp > 400)
-            return false;
-
-        if (cfg.gas_heater_duration < 0 || cfg.gas_heater_duration > 300)
-            return false;
+        if (cfg.gas_heater_temp < 200 || cfg.gas_heater_temp > 400) return false;
+        if (cfg.gas_heater_duration > 300) return false;
 
         return true;
     }
 
-    // helper opcional: debug print
     void print_config(const Config& cfg) {
         Serial.println("---- BME680 CONFIG ----");
 

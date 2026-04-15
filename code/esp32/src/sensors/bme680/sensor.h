@@ -1,7 +1,7 @@
 #pragma once
 
 #include "sensors/bme680/driver.h"
-#include "config.h"
+#include "sensors/bme680/config.h"
 
 namespace bme680 {
 
@@ -13,14 +13,11 @@ namespace bme680 {
   public:
       void init();
 
-      // lectura bajo demanda
       BME680Data read();
 
-      // configuración
-      void set_config(const Config& cfg);
-      Config get_config();
+      bool set_config(const Config& cfg);
+      Config get_config() const;
 
-      // acceso avanzado (opcional)
       BME680Driver& get_driver();
   };
 

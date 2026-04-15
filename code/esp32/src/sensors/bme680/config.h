@@ -1,24 +1,29 @@
 #pragma once
+
 #include <cstdint>
 
 namespace bme680 {
 
   struct Config {
-      // --- sistema ---
+      // sistema
       unsigned long interval_ms = 10000;
       bool simulation = false;
 
-      // --- oversampling ---
+      // oversampling
       uint8_t temp_oversample = 8;
       uint8_t hum_oversample = 2;
       uint8_t press_oversample = 4;
 
-      // --- filtro ---
+      // filtro
       uint8_t iir_filter = 3;
 
-      // --- gas sensor ---
+      // gas sensor
       uint16_t gas_heater_temp = 320;
       uint16_t gas_heater_duration = 150;
   };
+
+  Config get_default_config();
+  bool validate_config(const Config& cfg);
+  void print_config(const Config& cfg);
 
 }
