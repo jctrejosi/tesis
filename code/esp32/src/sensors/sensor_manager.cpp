@@ -8,25 +8,32 @@
 namespace sensors {
 
     static bme680::Sensor bme;
-    static unsigned long last_sample = 0;
+
+    static unsigned long last_bme_sample = 0;
 
     void begin() {
         bme.init();
-        last_sample = millis();
+        last_bme_sample = millis();
     }
 
-    void update() {
+    void update_individual() {
         unsigned long now = millis();
 
-        bme680::Config cfg = bme.get_config();
-        unsigned long interval = cfg.interval_ms;
+        unsigned long interval = bme.get_config().interval_ms;
 
-        if (now - last_sample >= interval) {
-            last_sample = now;
+        if (now - last_bme_sample >= interval) {
+            last_bme_sample = now;
 
             bme680::BME680Data data = bme.read();
             bme680::Publisher::publish(data);
         }
+    }
+
+    void update_global_sync() {
+        Serial.println("[SYNC] global synchronized sampling");
+
+        bme680::BME680Data data = bme.read();
+        bme680::Publisher::publish(data);
     }
 
     void publish_now() {
