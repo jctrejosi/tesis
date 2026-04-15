@@ -1,10 +1,11 @@
 #include "sensors/bme680/sensor.h"
 #include <Arduino.h>
+#include "storage/config_store.h"
 
 namespace bme680 {
 
     void Sensor::init() {
-        config = get_default_config();
+        config = storage::load_bme680_config();
 
         driver.set_simulation_mode(config.simulation);
         driver.apply_config(config);
@@ -26,6 +27,8 @@ namespace bme680 {
         }
 
         config = cfg;
+        storage::save_bme680_config(cfg);
+
         return true;
     }
 
