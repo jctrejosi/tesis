@@ -6,10 +6,18 @@ namespace bme680 {
 
     void Sensor::init() {
         config = storage::load_bme680_config();
-
-        driver.set_simulation_mode(config.simulation);
-        driver.apply_config(config);
-
+    
+        if (!bme680::validate_config(config)) {
+            Serial.println("[BME680] config inválida en almacenamiento, cargando defaults");
+            config = bme680::get_default_config();
+            storage::save_bme680_config(config);
+        }
+    
+        if (!driver.apply_config(config)) {
+            Serial.println("[BME680] no se pudo aplicar la configuración");
+            return;
+        }
+    
         if (!driver.begin()) {
             Serial.println("[BME680] init failed");
         } else {

@@ -41,11 +41,13 @@ namespace sensors {
         bme680::Publisher::publish(data);
     }
 
-    void apply_bme680_config(const bme680::Config& cfg) {
+    bool apply_bme680_config(const bme680::Config& cfg) {
         if (bme.set_config(cfg)) {
             Serial.println("[BME680] config actualizada");
+            return true;
         } else {
             Serial.println("[BME680] config inválida");
+            return false;
         }
     }
 

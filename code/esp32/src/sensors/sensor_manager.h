@@ -10,6 +10,6 @@ namespace sensors {
   void update_global_sync();
 
   void publish_now();
-  void apply_bme680_config(const bme680::Config& cfg);
+  bool apply_bme680_config(const bme680::Config& cfg);
 
 }

@@ -4,7 +4,21 @@
 namespace bme680 {
 
     Config get_default_config() {
-        return Config{};
+        Config cfg;
+
+        cfg.interval_ms = 10000;
+        cfg.simulation = true;
+
+        cfg.temp_oversample = 8;
+        cfg.hum_oversample = 2;
+        cfg.press_oversample = 4;
+
+        cfg.iir_filter = 3;
+
+        cfg.gas_heater_temp = 320;
+        cfg.gas_heater_duration = 150;
+
+        return cfg;
     }
 
     static bool is_valid_oversample(uint8_t value) {
