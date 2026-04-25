@@ -1,8 +1,10 @@
 #include "client.h"
+
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <cstring>
+
 #include "app_config.h"
-#include "sensors/bme680/command_handler.h"
 #include "mqtt/router.h"
 
 WiFiClient espClient;
@@ -57,11 +59,7 @@ bool reconnect_mqtt() {
     if (client.connect("ESP32GrowBox")) {
         Serial.println("MQTT connected");
 
-        // wildcard subscriptions:
-        // cualquier sensor con comando read
         client.subscribe("growbox/+/read");
-
-        // cualquier sensor con comando config
         client.subscribe("growbox/+/config");
 
         return true;
@@ -98,8 +96,13 @@ void mqtt_loop() {
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     char message[256];
 
-    memcpy(message, payload, length);
-    message[length] = '\0';
+    size_t n = length;
+    if (n >= sizeof(message)) {
+        n = sizeof(message) - 1;
+    }
+
+    memcpy(message, payload, n);
+    message[n] = '\0';
 
     Serial.print("MQTT recibido: ");
     Serial.println(topic);

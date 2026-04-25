@@ -93,33 +93,6 @@ En error: valores `NAN`
 
 ---
 
-## flujo recomendado
-
-```cpp
-BME680Driver sensor;
-
-void setup() {
-    Serial.begin(115200);
-
-    if (!sensor.begin()) {
-        // fallback a simulación
-        sensor.set_simulation_mode(true);
-    }
-}
-
-void loop() {
-    auto data = sensor.read();
-
-    if (!isnan(data.temperature)) {
-        Serial.println(data.temperature);
-    }
-
-    delay(2000);
-}
-```
-
----
-
 ## manejo de errores
 
 * `begin()` falla → hardware no detectado

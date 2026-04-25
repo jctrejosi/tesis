@@ -1,16 +1,49 @@
 #include "router.h"
 
 #include "sensors/bme680/command_handler.h"
+#include "sensors/bh1750/command_handler.h"
 
 #include <cstring>
 
 void route_message(const char* topic, const char* payload) {
 
-    if (strcmp(topic, "growbox/bme680/read") == 0) {
-        bme680::handle_read_command();
+    char topic_copy[64];
+    strncpy(topic_copy, topic, sizeof(topic_copy));
+    topic_copy[sizeof(topic_copy) - 1] = '\0';
+
+    char* base = strtok(topic_copy, "/");
+    char* sensor = strtok(NULL, "/");
+    char* command = strtok(NULL, "/");
+
+    if (!base || !sensor || !command) {
+        return;
     }
 
-    else if (strcmp(topic, "growbox/bme680/config") == 0) {
-        bme680::handle_config_command(payload);
+    if (strcmp(base, "growbox") != 0) {
+        return;
+    }
+
+    // ===== BME680 =====
+    if (strcmp(sensor, "bme680") == 0) {
+
+        if (strcmp(command, "read") == 0) {
+            bme680::handle_read_command();
+        }
+        else if (strcmp(command, "config") == 0) {
+            bme680::handle_config_command(payload);
+        }
+
+    }
+
+    // ===== BH1750 =====
+    else if (strcmp(sensor, "bh1750") == 0) {
+
+        if (strcmp(command, "read") == 0) {
+            bh1750::handle_read_command();
+        }
+        else if (strcmp(command, "config") == 0) {
+            bh1750::handle_config_command(payload);
+        }
+
     }
 }
