@@ -1,17 +1,19 @@
 #include "sensors/ds18b20/sensor.h"
-#include "sensors/ds18b20/config_store.h"
 
 #include <Arduino.h>
 
 namespace ds18b20 {
 
-    void Sensor::init() {
-        Config cfg = storage::load_ds18b20_config();
-
+    void Sensor::init(const Config& cfg) {
+        // aplicar config primero
         if (!driver.apply_config(cfg)) {
-            Serial.println("[DS18B20] no se pudo aplicar config persistida");
+            Serial.println("[DS18B20] config inválida en init, usando defaults");
+
+            Config def = get_default_config();
+            driver.apply_config(def);
         }
 
+        // inicializar hardware (o simulación)
         if (!driver.begin()) {
             Serial.println("[DS18B20] init failed");
         } else {

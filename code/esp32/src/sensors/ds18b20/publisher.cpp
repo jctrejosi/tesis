@@ -8,7 +8,7 @@
 
 namespace ds18b20 {
 
-    void Publisher::publish(const DS18B20Data& data) {
+    void Publisher::publish(const char* topic, const DS18B20Data& data) {
         // validar dato
         if (isnan(data.temperature)) {
             Serial.println("[DS18B20] dato inválido");
@@ -29,9 +29,11 @@ namespace ds18b20 {
         }
 
         Serial.print("[DS18B20] publish: ");
+        Serial.print(topic);
+        Serial.print(" -> ");
         Serial.println(buffer);
 
-        if (!publish_message("growbox/ds18b20/data", buffer)) {
+        if (!publish_message(topic, buffer)) {
             Serial.println("[DS18B20] error al publicar MQTT");
         }
     }

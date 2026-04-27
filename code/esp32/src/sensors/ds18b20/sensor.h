@@ -10,7 +10,7 @@ namespace ds18b20 {
         DS18B20Driver driver;
 
     public:
-        void init();
+        void init(const Config& cfg);
 
         DS18B20Data read() override;
         bool begin() override { return driver.begin(); }
