@@ -11,6 +11,10 @@
 #include "sensors/ds18b20/publisher.h"
 #include "sensors/ds18b20/config_store.h"
 
+#include "sensors/mhz19b/sensor.h"
+#include "sensors/mhz19b/publisher.h"
+#include "sensors/mhz19b/config_store.h"
+
 #include <Arduino.h>
 
 namespace sensors {
@@ -18,23 +22,28 @@ namespace sensors {
     static bme680::Sensor bme680;
     static bh1750::Sensor bh1750;
 
-    // instancias DS18B20
+    // DS18B20
     static ds18b20::Sensor ds_soil;
     static ds18b20::Sensor ds_air;
 
+    // MH-Z19B
+    static mhz19b::Sensor mhz19b;
+
+    // timestamps
     static unsigned long last_bme_sample = 0;
     static unsigned long last_bh_sample  = 0;
-
     static unsigned long last_ds_soil_sample = 0;
     static unsigned long last_ds_air_sample  = 0;
+    static unsigned long last_co2_sample     = 0;
 
     void begin() {
         bme680.init();
         bh1750.init();
 
-        // cargar configs diferenciadas
         ds_soil.init(storage::load_ds18b20_config("ds18b20_soil"));
         ds_air.init(storage::load_ds18b20_config("ds18b20_air"));
+
+        mhz19b.init();
 
         unsigned long now = millis();
 
@@ -43,6 +52,8 @@ namespace sensors {
 
         last_ds_soil_sample = now;
         last_ds_air_sample  = now;
+
+        last_co2_sample = now;
     }
 
     void update_individual() {
@@ -79,6 +90,12 @@ namespace sensors {
             auto data = ds_air.read();
             ds18b20::Publisher::publish("growbox/ds18b20/air/data", data);
         }
+
+        // ===== MH-Z19B =====
+        if (now - last_co2_sample >= mhz19b.get_config().interval_ms) {
+            last_co2_sample = now;
+            mhz19b::Publisher::publish(mhz19b.read());
+        }
     }
 
     void update_global_sync() {
@@ -89,6 +106,8 @@ namespace sensors {
 
         ds18b20::Publisher::publish("growbox/ds18b20/soil/data", ds_soil.read());
         ds18b20::Publisher::publish("growbox/ds18b20/air/data",  ds_air.read());
+
+        mhz19b::Publisher::publish(mhz19b.read());
     }
 
     // ===== publish inmediato =====
@@ -107,6 +126,10 @@ namespace sensors {
 
     void publish_ds18b20_air_now() {
         ds18b20::Publisher::publish("growbox/ds18b20/air/data", ds_air.read());
+    }
+
+    void publish_mhz19b_now() {
+        mhz19b::Publisher::publish(mhz19b.read());
     }
 
     // ===== config =====
@@ -154,4 +177,14 @@ namespace sensors {
         return true;
     }
 
+    bool apply_mhz19b_config(const mhz19b::Config& cfg) {
+        if (!mhz19b.apply_config(cfg)) {
+            Serial.println("[MHZ19B] config inválida");
+            return false;
+        }
+
+        storage::save_mhz19b_config(cfg);
+        Serial.println("[MHZ19B] config actualizada");
+        return true;
+    }
 }

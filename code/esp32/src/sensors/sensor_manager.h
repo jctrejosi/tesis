@@ -22,4 +22,8 @@ namespace sensors {
     void publish_ds18b20_now();
     bool apply_ds18b20_config(const ds18b20::Config& cfg);
 
+    // MH-Z19B
+    void publish_mhz19b_now();
+    bool apply_mhz19b_config(const mhz19b::Config& cfg);
+
 }

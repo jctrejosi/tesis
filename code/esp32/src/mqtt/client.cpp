@@ -58,9 +58,7 @@ bool reconnect_mqtt() {
 
     if (client.connect("ESP32GrowBox")) {
         Serial.println("MQTT connected");
-
-        client.subscribe("growbox/+/read");
-        client.subscribe("growbox/+/config");
+        client.subscribe("growbox/#");
 
         return true;
     }
