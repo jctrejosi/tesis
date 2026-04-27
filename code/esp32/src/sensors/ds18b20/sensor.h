@@ -1,18 +1,18 @@
 #pragma once
 
-#include "sensors/bh1750/bh1750.h"
-#include "sensors/bh1750/driver.h"
+#include "sensors/ds18b20/ds18b20.h"
+#include "sensors/ds18b20/driver.h"
 
-namespace bh1750 {
+namespace ds18b20 {
 
-    class Sensor : public IBH1750 {
+    class Sensor : public IDS18B20 {
     private:
-        BH1750Driver driver;
+        DS18B20Driver driver;
 
     public:
         void init();
 
-        BH1750Data read() override;
+        DS18B20Data read() override;
         bool begin() override { return driver.begin(); }
 
         bool apply_config(const Config& cfg);
@@ -21,7 +21,7 @@ namespace bh1750 {
 
         void set_simulation(bool enabled);
 
-        BH1750Driver& get_driver();
+        DS18B20Driver& get_driver();
     };
 
 }

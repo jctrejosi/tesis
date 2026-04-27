@@ -81,9 +81,4 @@ namespace bh1750 {
         data.illuminance = lux;
         return data;
     }
-
-    bool BH1750Driver::is_ready() const {
-        return hardware_ready;
-    }
-
 }

@@ -2,6 +2,7 @@
 
 #include "sensors/bme680/command_handler.h"
 #include "sensors/bh1750/command_handler.h"
+#include "sensors/ds18b20/command_handler.h"
 
 #include <cstring>
 
@@ -45,5 +46,15 @@ void route_message(const char* topic, const char* payload) {
             bh1750::handle_config_command(payload);
         }
 
+    }
+
+    else if (strcmp(sensor, "ds18b20") == 0) {
+
+        if (strcmp(command, "read") == 0) {
+            ds18b20::handle_read_command();
+        }
+        else if (strcmp(command, "config") == 0) {
+            ds18b20::handle_config_command(payload);
+        }
     }
 }

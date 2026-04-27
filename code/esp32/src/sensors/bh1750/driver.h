@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Arduino.h>
 #include "sensors/bh1750/config.h"
 
 namespace bh1750 {
@@ -14,17 +13,31 @@ namespace bh1750 {
     public:
         BH1750Driver();
 
+        /**
+         * Inicializa el sensor
+         */
         bool begin();
 
+        /**
+         * Activa/desactiva simulación
+         */
         void set_simulation_mode(bool enabled);
 
+        /**
+         * Aplica configuración validada
+         */
         bool apply_config(const Config& cfg);
 
+        /**
+         * Retorna configuración actual
+         */
         Config get_config() const;
 
+        /**
+         * Lee iluminancia
+         * NAN en caso de error
+         */
         BH1750Data read();
-
-        bool is_ready() const;
     };
 
 }

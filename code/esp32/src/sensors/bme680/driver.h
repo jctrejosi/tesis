@@ -3,14 +3,6 @@
 #include "sensors/bme680/config.h"
 
 namespace bme680 {
-
-    struct BME680Data {
-        float temperature;
-        float humidity;
-        float pressure;
-        float gas_resistance;
-    };
-
     class BME680Driver {
     private:
         bool simulation_mode;

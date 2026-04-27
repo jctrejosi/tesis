@@ -1,38 +1,14 @@
 #pragma once
 
-#include <Arduino.h>
+#include "sensors/bh1750/config.h"
 
 namespace bh1750 {
 
-    class BH1750Driver {
-    private:
-        bool simulation_mode;
-        bool hardware_ready;
-
+    class IBH1750 {
     public:
-        BH1750Driver();
-
-        /**
-         * Inicializa el sensor.
-         * @return true si inicializa correctamente (o en simulación)
-         */
-        bool begin();
-
-        /**
-         * Activa o desactiva modo simulación
-         */
-        void set_simulation_mode(bool enabled);
-
-        /**
-         * Lee la iluminancia en lux
-         * @return valor en lux o NAN si falla
-         */
-        float read();
-
-        /**
-         * Indica si el hardware está disponible
-         */
-        bool is_ready() const;
+        virtual bool begin() = 0;
+        virtual BH1750Data read() = 0;
+        virtual ~IBH1750() = default;
     };
 
 }

@@ -7,7 +7,7 @@
 namespace bme680 {
 
     void handle_read_command() {
-        sensors::publish_now();
+        sensors::publish_bme680_now();
     }
 
     void handle_config_command(const char* payload) {

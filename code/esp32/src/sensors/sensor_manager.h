@@ -18,4 +18,8 @@ namespace sensors {
     void publish_bh1750_now();
     bool apply_bh1750_config(const bh1750::Config& cfg);
 
+    // DS18B20
+    void publish_ds18b20_now();
+    bool apply_ds18b20_config(const ds18b20::Config& cfg);
+
 }

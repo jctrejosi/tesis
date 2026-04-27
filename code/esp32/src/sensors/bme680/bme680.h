@@ -1,19 +1,14 @@
 #pragma once
 
-namespace bme680 {
+#include "sensors/bme680/config.h"
 
-    struct BME680Data {
-        float temperature;
-        float humidity;
-        float pressure;
-        float gas_resistance;
-    };
+namespace bme680 {
 
     class IBME680 {
     public:
         virtual bool begin() = 0;
         virtual BME680Data read() = 0;
-        virtual ~IBME680() {}
+        virtual ~IBME680() = default;
     };
 
 }

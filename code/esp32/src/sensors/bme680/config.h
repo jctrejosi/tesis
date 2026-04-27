@@ -3,6 +3,12 @@
 #include <cstdint>
 
 namespace bme680 {
+  struct BME680Data {
+    float temperature;
+    float humidity;
+    float pressure;
+    float gas_resistance;
+  };
 
   struct Config {
       // sistema
