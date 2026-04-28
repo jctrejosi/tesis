@@ -19,6 +19,10 @@
 #include "sensors/soil_ec_rs485/publisher.h"
 #include "sensors/soil_ec_rs485/config_store.h"
 
+#include "sensors/dfrobot_sen0193/sensor.h"
+#include "sensors/dfrobot_sen0193/publisher.h"
+#include "sensors/dfrobot_sen0193/config_store.h"
+
 #include <Arduino.h>
 
 namespace sensors {
@@ -28,8 +32,7 @@ namespace sensors {
     static bh1750::Sensor bh1750;
     static mhz19b::Sensor mhz19b;
     static soil_ec_rs485::Sensor soil_ec;
-
-    // ===== DS18B20 (único caso multi-instancia válido) =====
+    static dfrobot_sen0193::Sensor dfrobot;
     static ds18b20::Sensor ds_soil;
     static ds18b20::Sensor ds_air;
 
