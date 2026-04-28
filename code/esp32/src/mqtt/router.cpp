@@ -4,6 +4,7 @@
 #include "sensors/bh1750/command_handler.h"
 #include "sensors/ds18b20/command_handler.h"
 #include "sensors/mhz19b/command_handler.h"
+#include "sensors/soil_ec_rs485/command_handler.h"
 
 #include <cstring>
 
@@ -58,6 +59,16 @@ void route_message(const char* topic, const char* payload) {
             mhz19b::handle_read_command();
         } else if (strcmp(command, "config") == 0) {
             mhz19b::handle_config_command(payload);
+        }
+    }
+
+    // ===== SOIL EC RS485 =====
+    else if (strcmp(sensor, "soil_ec_rs485") == 0) {
+
+        if (strcmp(command, "read") == 0) {
+            soil_ec_rs485::handle_read_command();
+        } else if (strcmp(command, "config") == 0) {
+            soil_ec_rs485::handle_config_command(payload);
         }
     }
 }

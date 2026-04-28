@@ -15,102 +15,116 @@
 #include "sensors/mhz19b/publisher.h"
 #include "sensors/mhz19b/config_store.h"
 
+#include "sensors/soil_ec_rs485/sensor.h"
+#include "sensors/soil_ec_rs485/publisher.h"
+#include "sensors/soil_ec_rs485/config_store.h"
+
 #include <Arduino.h>
 
 namespace sensors {
 
+    // ===== sensores únicos =====
     static bme680::Sensor bme680;
     static bh1750::Sensor bh1750;
+    static mhz19b::Sensor mhz19b;
+    static soil_ec_rs485::Sensor soil_ec;
 
-    // DS18B20
+    // ===== DS18B20 (único caso multi-instancia válido) =====
     static ds18b20::Sensor ds_soil;
     static ds18b20::Sensor ds_air;
 
-    // MH-Z19B
-    static mhz19b::Sensor mhz19b;
+    // ===== timers =====
+    static unsigned long last_bme = 0;
+    static unsigned long last_bh  = 0;
 
-    // timestamps
-    static unsigned long last_bme_sample = 0;
-    static unsigned long last_bh_sample  = 0;
-    static unsigned long last_ds_soil_sample = 0;
-    static unsigned long last_ds_air_sample  = 0;
-    static unsigned long last_co2_sample     = 0;
+    static unsigned long last_ds_soil = 0;
+    static unsigned long last_ds_air  = 0;
 
+    static unsigned long last_co2 = 0;
+    static unsigned long last_ec  = 0;
+
+    // =========================================================
     void begin() {
+
         bme680.init();
         bh1750.init();
+        mhz19b.init();
+        soil_ec.init();
 
         ds_soil.init(storage::load_ds18b20_config("ds18b20_soil"));
         ds_air.init(storage::load_ds18b20_config("ds18b20_air"));
 
-        mhz19b.init();
-
         unsigned long now = millis();
 
-        last_bme_sample = now;
-        last_bh_sample  = now;
+        last_bme = now;
+        last_bh  = now;
 
-        last_ds_soil_sample = now;
-        last_ds_air_sample  = now;
+        last_ds_soil = now;
+        last_ds_air  = now;
 
-        last_co2_sample = now;
+        last_co2 = now;
+        last_ec  = now;
     }
 
+    // =========================================================
     void update_individual() {
+
         unsigned long now = millis();
 
         // ===== BME680 =====
-        if (now - last_bme_sample >= bme680.get_config().interval_ms) {
-            last_bme_sample = now;
-
-            auto data = bme680.read();
-            bme680::Publisher::publish(data);
+        if (now - last_bme >= bme680.get_config().interval_ms) {
+            last_bme = now;
+            bme680::Publisher::publish(bme680.read());
         }
 
         // ===== BH1750 =====
-        if (now - last_bh_sample >= bh1750.get_config().interval_ms) {
-            last_bh_sample = now;
-
-            auto data = bh1750.read();
-            bh1750::Publisher::publish(data);
+        if (now - last_bh >= bh1750.get_config().interval_ms) {
+            last_bh = now;
+            bh1750::Publisher::publish(bh1750.read());
         }
 
-        // ===== DS18B20 SUELO =====
-        if (now - last_ds_soil_sample >= ds_soil.get_config().interval_ms) {
-            last_ds_soil_sample = now;
-
-            auto data = ds_soil.read();
-            ds18b20::Publisher::publish("growbox/ds18b20/soil/data", data);
+        // ===== DS18B20 SOIL =====
+        if (now - last_ds_soil >= ds_soil.get_config().interval_ms) {
+            last_ds_soil = now;
+            ds18b20::Publisher::publish("growbox/ds18b20/soil/data", ds_soil.read());
         }
 
-        // ===== DS18B20 AIRE =====
-        if (now - last_ds_air_sample >= ds_air.get_config().interval_ms) {
-            last_ds_air_sample = now;
-
-            auto data = ds_air.read();
-            ds18b20::Publisher::publish("growbox/ds18b20/air/data", data);
+        // ===== DS18B20 AIR =====
+        if (now - last_ds_air >= ds_air.get_config().interval_ms) {
+            last_ds_air = now;
+            ds18b20::Publisher::publish("growbox/ds18b20/air/data", ds_air.read());
         }
 
         // ===== MH-Z19B =====
-        if (now - last_co2_sample >= mhz19b.get_config().interval_ms) {
-            last_co2_sample = now;
+        if (now - last_co2 >= mhz19b.get_config().interval_ms) {
+            last_co2 = now;
             mhz19b::Publisher::publish(mhz19b.read());
+        }
+
+        // ===== SOIL EC RS485 =====
+        if (now - last_ec >= soil_ec.get_config().interval_ms) {
+            last_ec = now;
+            soil_ec_rs485::Publisher::publish(soil_ec.read());
         }
     }
 
+    // =========================================================
     void update_global_sync() {
-        Serial.println("[SYNC] global synchronized sampling");
+
+        Serial.println("[SYNC] global sampling");
 
         bme680::Publisher::publish(bme680.read());
         bh1750::Publisher::publish(bh1750.read());
 
         ds18b20::Publisher::publish("growbox/ds18b20/soil/data", ds_soil.read());
-        ds18b20::Publisher::publish("growbox/ds18b20/air/data",  ds_air.read());
+        ds18b20::Publisher::publish("growbox/ds18b20/air/data", ds_air.read());
 
         mhz19b::Publisher::publish(mhz19b.read());
+        soil_ec_rs485::Publisher::publish(soil_ec.read());
     }
 
-    // ===== publish inmediato =====
+    // =========================================================
+    // publish inmediato
 
     void publish_bme680_now() {
         bme680::Publisher::publish(bme680.read());
@@ -120,7 +134,7 @@ namespace sensors {
         bh1750::Publisher::publish(bh1750.read());
     }
 
-    void publish_ds18b20_now() {
+    void publish_ds18b20_soil_now() {
         ds18b20::Publisher::publish("growbox/ds18b20/soil/data", ds_soil.read());
     }
 
@@ -132,59 +146,46 @@ namespace sensors {
         mhz19b::Publisher::publish(mhz19b.read());
     }
 
-    // ===== config =====
+    void publish_soil_ec_rs485_now() {
+        soil_ec_rs485::Publisher::publish(soil_ec.read());
+    }
+
+    // =========================================================
+    // config
 
     bool apply_bme680_config(const bme680::Config& cfg) {
-        if (!bme680.apply_config(cfg)) {
-            Serial.println("[BME680] config inválida");
-            return false;
-        }
-
-        Serial.println("[BME680] config actualizada");
+        if (!bme680.apply_config(cfg)) return false;
         return true;
     }
 
     bool apply_bh1750_config(const bh1750::Config& cfg) {
-        if (!bh1750.apply_config(cfg)) {
-            Serial.println("[BH1750] config inválida");
-            return false;
-        }
-
+        if (!bh1750.apply_config(cfg)) return false;
         storage::save_bh1750_config(cfg);
-        Serial.println("[BH1750] config actualizada");
         return true;
     }
 
-    bool apply_ds18b20_config(const ds18b20::Config& cfg) {
-        if (!ds_soil.apply_config(cfg)) {
-            Serial.println("[DS18B20-SOIL] config inválida");
-            return false;
-        }
-
+    bool apply_ds18b20_soil_config(const ds18b20::Config& cfg) {
+        if (!ds_soil.apply_config(cfg)) return false;
         storage::save_ds18b20_config("ds18b20_soil", cfg);
-        Serial.println("[DS18B20-SOIL] config actualizada");
         return true;
     }
 
     bool apply_ds18b20_air_config(const ds18b20::Config& cfg) {
-        if (!ds_air.apply_config(cfg)) {
-            Serial.println("[DS18B20-AIR] config inválida");
-            return false;
-        }
-
+        if (!ds_air.apply_config(cfg)) return false;
         storage::save_ds18b20_config("ds18b20_air", cfg);
-        Serial.println("[DS18B20-AIR] config actualizada");
         return true;
     }
 
     bool apply_mhz19b_config(const mhz19b::Config& cfg) {
-        if (!mhz19b.apply_config(cfg)) {
-            Serial.println("[MHZ19B] config inválida");
-            return false;
-        }
-
+        if (!mhz19b.apply_config(cfg)) return false;
         storage::save_mhz19b_config(cfg);
-        Serial.println("[MHZ19B] config actualizada");
         return true;
     }
+
+    bool apply_soil_ec_rs485_config(const soil_ec_rs485::Config& cfg) {
+        if (!soil_ec.apply_config(cfg)) return false;
+        storage::save_soil_ec_rs485_config(cfg);
+        return true;
+    }
+
 }
