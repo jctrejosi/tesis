@@ -5,6 +5,7 @@
 #include "sensors/ds18b20/command_handler.h"
 #include "sensors/mhz19b/command_handler.h"
 #include "sensors/soil_ec_rs485/command_handler.h"
+#include "actuators/relay/command_handler.h"
 
 #include <cstring>
 
@@ -15,6 +16,7 @@ void route_message(const char* topic, const char* payload) {
     topic_copy[sizeof(topic_copy) - 1] = '\0';
 
     char* base = strtok(topic_copy, "/");
+    char* module = strtok(NULL, "/");
     char* sensor = strtok(NULL, "/");
     char* target  = strtok(NULL, "/");
     char* command = strtok(NULL, "/");
@@ -69,6 +71,20 @@ void route_message(const char* topic, const char* payload) {
             soil_ec_rs485::handle_read_command();
         } else if (strcmp(command, "config") == 0) {
             soil_ec_rs485::handle_config_command(payload);
+        }
+    }
+
+    // ===== RELAY =====
+    else if (strcmp(module, "relay") == 0) {
+
+        if (strcmp(command, "read") == 0) {
+            relay::handle_read_command(payload);
+        }
+        else if (strcmp(command, "set") == 0) {
+            relay::handle_set_command(payload);
+        }
+        else if (strcmp(command, "config") == 0) {
+            relay::handle_config_command(payload);
         }
     }
 }
