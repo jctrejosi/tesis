@@ -1,42 +1,80 @@
-#include "sensors/bh1750/command_handler.h"
+#include "sensors/as7341/command_handler.h"
+
+#include "sensors/as7341/config.h"
 #include "sensors/sensor_manager.h"
-#include "sensors/bh1750/driver.h"
 
-#include <ArduinoJson.h>
 #include <Arduino.h>
+#include <ArduinoJson.h>
 
-namespace bh1750 {
+namespace as7341 {
 
     void handle_read_command() {
-        sensors::publish_bh1750_now();
+
+        sensors::publish_as7341_now();
     }
 
-    void handle_config_command(const char* payload) {
-        StaticJsonDocument<128> doc;
+    void handle_config_command(
+        const char* payload
+    ) {
 
-        DeserializationError error = deserializeJson(doc, payload);
+        StaticJsonDocument<256> doc;
+
+        DeserializationError error =
+            deserializeJson(doc, payload);
 
         if (error) {
-            Serial.println("[BH1750] JSON inválido");
+
+            Serial.println(
+                "[AS7341] JSON inválido"
+            );
+
             return;
         }
 
         Config cfg;
 
-        cfg.interval_ms = doc["interval_ms"] | 10000;
-        cfg.simulation = doc["simulation"] | false;
+        cfg.interval_ms =
+            doc["interval_ms"] | 10000;
+
+        cfg.simulation =
+            doc["simulation"] | false;
+
+        cfg.atime =
+            doc["atime"] | 29;
+
+        cfg.astep =
+            doc["astep"] | 599;
+
+        cfg.gain =
+            doc["gain"] | 128;
+
+        cfg.led_enabled =
+            doc["led_enabled"] | false;
+
+        cfg.led_current_ma =
+            doc["led_current_ma"] | 10;
 
         if (!validate_config(cfg)) {
-            Serial.println("[BH1750] config inválida");
+
+            Serial.println(
+                "[AS7341] config inválida"
+            );
+
             return;
         }
 
-        if (!sensors::apply_bh1750_config(cfg)) {
-            Serial.println("[BH1750] no se pudo aplicar config");
+        if (!sensors::apply_as7341_config(cfg)) {
+
+            Serial.println(
+                "[AS7341] no se pudo aplicar configuración"
+            );
+
             return;
         }
 
-        Serial.println("[BH1750] config aplicada");
+        Serial.println(
+            "[AS7341] configuración aplicada"
+        );
     }
 
 }

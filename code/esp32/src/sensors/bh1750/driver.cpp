@@ -1,84 +1,248 @@
-#include "sensors/bh1750/driver.h"
+#include "sensors/as7341/driver.h"
 
+#include <Arduino.h>
 #include <Wire.h>
-#include <BH1750.h>
-#include <math.h>
+#include <Adafruit_AS7341.h>
 
-#define BH1750_I2C_ADDRESS 0x23
-#define BH1750_SDA_PIN 21
-#define BH1750_SCL_PIN 22
+#define AS7341_SDA_PIN 21
+#define AS7341_SCL_PIN 22
 
-namespace bh1750 {
+namespace as7341 {
 
-    static BH1750 light_meter;
+    static Adafruit_AS7341 sensor;
 
-    BH1750Driver::BH1750Driver()
+    AS7341Driver::AS7341Driver()
         : simulation_mode(false),
           hardware_ready(false),
-          current_config(get_default_config()) {}
+          current_config(get_default_config()) {
+    }
 
-    bool BH1750Driver::begin() {
+    uint8_t AS7341Driver::map_gain(uint16_t gain) {
+
+        switch (gain) {
+
+            case 1:
+                return AS7341_GAIN_0_5X;
+
+            case 2:
+                return AS7341_GAIN_1X;
+
+            case 4:
+                return AS7341_GAIN_2X;
+
+            case 8:
+                return AS7341_GAIN_4X;
+
+            case 16:
+                return AS7341_GAIN_8X;
+
+            case 32:
+                return AS7341_GAIN_16X;
+
+            case 64:
+                return AS7341_GAIN_32X;
+
+            case 128:
+                return AS7341_GAIN_64X;
+
+            case 256:
+                return AS7341_GAIN_128X;
+
+            case 512:
+                return AS7341_GAIN_256X;
+
+            default:
+                return AS7341_GAIN_64X;
+        }
+    }
+
+    void AS7341Driver::apply_hardware_config() {
+
+        if (!hardware_ready || simulation_mode) {
+            return;
+        }
+
+        sensor.setATIME(current_config.atime);
+
+        sensor.setASTEP(current_config.astep);
+
+        sensor.setGain(
+            (as7341_gain_t) map_gain(current_config.gain)
+        );
+
+        if (current_config.led_enabled) {
+
+            sensor.enableLED(true);
+
+            sensor.setLEDCurrent(
+                current_config.led_current_ma
+            );
+        }
+        else {
+
+            sensor.enableLED(false);
+        }
+    }
+
+    bool AS7341Driver::begin() {
+
         randomSeed(millis());
 
         if (simulation_mode) {
+
             hardware_ready = false;
             return true;
         }
 
-        Wire.begin(BH1750_SDA_PIN, BH1750_SCL_PIN);
+        Wire.begin(
+            AS7341_SDA_PIN,
+            AS7341_SCL_PIN
+        );
 
-        if (!light_meter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, BH1750_I2C_ADDRESS, &Wire)) {
-            Serial.println("[BH1750] no detectado");
+        if (!sensor.begin()) {
+
+            Serial.println(
+                "[AS7341] sensor no detectado"
+            );
+
             hardware_ready = false;
+
             return false;
         }
 
         hardware_ready = true;
-        Serial.println("[BH1750] inicializado");
+
+        apply_hardware_config();
+
+        Serial.println(
+            "[AS7341] inicializado"
+        );
+
         return true;
     }
 
-    void BH1750Driver::set_simulation_mode(bool enabled) {
+    void AS7341Driver::set_simulation_mode(
+        bool enabled
+    ) {
+
         simulation_mode = enabled;
+
         current_config.simulation = enabled;
     }
 
-    bool BH1750Driver::apply_config(const Config& cfg) {
+    bool AS7341Driver::apply_config(
+        const Config& cfg
+    ) {
+
         if (!validate_config(cfg)) {
-            Serial.println("[BH1750] config inválida");
+
+            Serial.println(
+                "[AS7341] config inválida"
+            );
+
             return false;
         }
 
         current_config = cfg;
+
         simulation_mode = cfg.simulation;
+
+        if (hardware_ready &&
+            !simulation_mode) {
+
+            apply_hardware_config();
+        }
+
         return true;
     }
 
-    Config BH1750Driver::get_config() const {
+    Config AS7341Driver::get_config() const {
+
         return current_config;
     }
 
-    BH1750Data BH1750Driver::read() {
-        BH1750Data data{};
-        data.illuminance = NAN;
+    AS7341Data AS7341Driver::read() {
+
+        AS7341Data data{};
 
         if (simulation_mode) {
-            data.illuminance = (float)random(100, 10000);
+
+            data.f1_415nm = random(100, 5000);
+            data.f2_445nm = random(100, 5000);
+            data.f3_480nm = random(100, 5000);
+            data.f4_515nm = random(100, 5000);
+            data.f5_555nm = random(100, 5000);
+
+            data.f6_590nm = random(100, 5000);
+            data.f7_630nm = random(100, 5000);
+            data.f8_680nm = random(100, 5000);
+
+            data.clear = random(1000, 15000);
+            data.nir = random(100, 5000);
+
             return data;
         }
 
         if (!hardware_ready) {
+
             return data;
         }
 
-        float lux = light_meter.readLightLevel();
+        if (!sensor.readAllChannels()) {
 
-        if (isnan(lux) || lux < 0) {
-            Serial.println("[BH1750] error lectura");
+            Serial.println(
+                "[AS7341] error de lectura"
+            );
+
             return data;
         }
 
-        data.illuminance = lux;
+        data.f1_415nm = sensor.getChannel(
+            AS7341_CHANNEL_415nm_F1
+        );
+
+        data.f2_445nm = sensor.getChannel(
+            AS7341_CHANNEL_445nm_F2
+        );
+
+        data.f3_480nm = sensor.getChannel(
+            AS7341_CHANNEL_480nm_F3
+        );
+
+        data.f4_515nm = sensor.getChannel(
+            AS7341_CHANNEL_515nm_F4
+        );
+
+        data.f5_555nm = sensor.getChannel(
+            AS7341_CHANNEL_555nm_F5
+        );
+
+        data.f6_590nm = sensor.getChannel(
+            AS7341_CHANNEL_590nm_F6
+        );
+
+        data.f7_630nm = sensor.getChannel(
+            AS7341_CHANNEL_630nm_F7
+        );
+
+        data.f8_680nm = sensor.getChannel(
+            AS7341_CHANNEL_680nm_F8
+        );
+
+        data.clear = sensor.getChannel(
+            AS7341_CHANNEL_CLEAR
+        );
+
+        data.nir = sensor.getChannel(
+            AS7341_CHANNEL_NIR
+        );
+
         return data;
     }
+
+    bool AS7341Driver::is_ready() const {
+
+        return hardware_ready;
+    }
+
 }

@@ -1,43 +1,57 @@
-#include "sensors/bh1750/sensor.h"
-#include "sensors/bh1750/config_store.h"
+#include "sensors/as7341/sensor.h"
 
+#include "sensors/as7341/config_store.h"
 #include <Arduino.h>
 
-namespace bh1750 {
+namespace as7341 {
+
+    Sensor::Sensor()
+        : config(get_default_config()) {}
 
     void Sensor::init() {
-        Config cfg = storage::load_bh1750_config();
+        config = storage::load_as7341_config();
 
-        if (!driver.apply_config(cfg)) {
-            Serial.println("[BH1750] no se pudo aplicar config persistida");
+        driver.set_simulation_mode(config.simulation);
+
+        if (!driver.apply_config(config)) {
+            Serial.println("[AS7341] config inválida");
+            config = get_default_config();
+            driver.set_simulation_mode(config.simulation);
+            driver.apply_config(config);
+            storage::save_as7341_config(config);
         }
 
         if (!driver.begin()) {
-            Serial.println("[BH1750] init failed");
+            Serial.println("[AS7341] init failed");
         } else {
-            Serial.println("[BH1750] ready");
+            Serial.println("[AS7341] ready");
         }
     }
 
-    BH1750Data Sensor::read() {
+    AS7341Data Sensor::read() {
         return driver.read();
     }
 
-    void Sensor::set_simulation(bool enabled) {
-        Config cfg = driver.get_config();
-        cfg.simulation = enabled;
-        driver.apply_config(cfg);
-    }
+    bool Sensor::set_config(const Config& cfg) {
+        if (!driver.apply_config(cfg)) {
+            return false;
+        }
 
-    bool Sensor::apply_config(const Config& cfg) {
-        return driver.apply_config(cfg);
+        config = cfg;
+        storage::save_as7341_config(cfg);
+        return true;
     }
 
     Config Sensor::get_config() const {
         return driver.get_config();
     }
 
-    BH1750Driver& Sensor::get_driver() {
+    void Sensor::set_simulation(bool enabled) {
+        driver.set_simulation_mode(enabled);
+        config.simulation = enabled;
+    }
+
+    AS7341Driver& Sensor::get_driver() {
         return driver;
     }
 

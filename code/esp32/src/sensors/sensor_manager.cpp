@@ -3,9 +3,9 @@
 #include "sensors/bme680/sensor.h"
 #include "sensors/bme680/publisher.h"
 
-#include "sensors/bh1750/sensor.h"
-#include "sensors/bh1750/publisher.h"
-#include "sensors/bh1750/config_store.h"
+#include "sensors/as7341/sensor.h"
+#include "sensors/as7341/publisher.h"
+#include "sensors/as7341/config_store.h"
 
 #include "sensors/ds18b20/sensor.h"
 #include "sensors/ds18b20/publisher.h"
@@ -29,7 +29,7 @@ namespace sensors {
 
     // ===== sensores únicos =====
     static bme680::Sensor bme680;
-    static bh1750::Sensor bh1750;
+    static as7341::Sensor as7341;
     static mhz19b::Sensor mhz19b;
     static soil_ec_rs485::Sensor soil_ec;
     static dfrobot_sen0193::Sensor dfrobot;
@@ -50,7 +50,7 @@ namespace sensors {
     void begin() {
 
         bme680.init();
-        bh1750.init();
+        as7341.init();
         mhz19b.init();
         soil_ec.init();
 
@@ -80,10 +80,10 @@ namespace sensors {
             bme680::Publisher::publish(bme680.read());
         }
 
-        // ===== BH1750 =====
-        if (now - last_bh >= bh1750.get_config().interval_ms) {
+        // ===== as7341 =====
+        if (now - last_bh >= as7341.get_config().interval_ms) {
             last_bh = now;
-            bh1750::Publisher::publish(bh1750.read());
+            as7341::Publisher::publish(as7341.read());
         }
 
         // ===== DS18B20 SOIL =====
@@ -117,7 +117,7 @@ namespace sensors {
         Serial.println("[SYNC] global sampling");
 
         bme680::Publisher::publish(bme680.read());
-        bh1750::Publisher::publish(bh1750.read());
+        as7341::Publisher::publish(as7341.read());
 
         ds18b20::Publisher::publish("growbox/ds18b20/soil/data", ds_soil.read());
         ds18b20::Publisher::publish("growbox/ds18b20/air/data", ds_air.read());
@@ -133,8 +133,8 @@ namespace sensors {
         bme680::Publisher::publish(bme680.read());
     }
 
-    void publish_bh1750_now() {
-        bh1750::Publisher::publish(bh1750.read());
+    void publish_as7341_now() {
+        as7341::Publisher::publish(as7341.read());
     }
 
     void publish_ds18b20_soil_now() {
@@ -161,9 +161,9 @@ namespace sensors {
         return true;
     }
 
-    bool apply_bh1750_config(const bh1750::Config& cfg) {
-        if (!bh1750.apply_config(cfg)) return false;
-        storage::save_bh1750_config(cfg);
+    bool apply_as7341_config(const as7341::Config& cfg) {
+        if (!as7341.apply_config(cfg)) return false;
+        storage::save_as7341_config(cfg);
         return true;
     }
 

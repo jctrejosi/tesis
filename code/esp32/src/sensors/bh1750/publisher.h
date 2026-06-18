@@ -1,12 +1,12 @@
 #pragma once
 
-#include "sensors/bh1750/driver.h"
+#include "sensors/as7341/driver.h"
 
-namespace bh1750 {
+namespace as7341 {
 
     class Publisher {
     public:
-        static void publish(const BH1750Data& data);
+        static void publish(const AS7341Data& data);
     };
 
 }

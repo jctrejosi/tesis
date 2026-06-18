@@ -1,27 +1,28 @@
 #pragma once
 
-#include "sensors/bh1750/bh1750.h"
-#include "sensors/bh1750/driver.h"
+#include "sensors/as7341/driver.h"
 
-namespace bh1750 {
+namespace as7341 {
 
-    class Sensor : public IBH1750 {
+    class Sensor {
     private:
-        BH1750Driver driver;
+        AS7341Driver driver;
+        Config config;
 
     public:
+        Sensor();
+
         void init();
 
-        BH1750Data read() override;
-        bool begin() override { return driver.begin(); }
+        AS7341Data read();
 
-        bool apply_config(const Config& cfg);
+        bool set_config(const Config& cfg);
 
         Config get_config() const;
 
         void set_simulation(bool enabled);
 
-        BH1750Driver& get_driver();
+        AS7341Driver& get_driver();
     };
 
 }

@@ -1,10 +1,13 @@
 #pragma once
 
-#include "sensors/bh1750/config.h"
+#include "sensors/as7341/config.h"
 
 namespace storage {
 
-    bool save_bh1750_config(const bh1750::Config& cfg);
-    bh1750::Config load_bh1750_config();
+    bool save_as7341_config(
+        const as7341::Config& cfg
+    );
+
+    as7341::Config load_as7341_config();
 
 }

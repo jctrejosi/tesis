@@ -1,43 +1,55 @@
 #pragma once
 
-#include "sensors/bh1750/config.h"
+#include <Arduino.h>
 
-namespace bh1750 {
+#include "sensors/as7341/config.h"
 
-    class BH1750Driver {
+namespace as7341 {
+
+    struct AS7341Data {
+
+        uint16_t f1_415nm;
+        uint16_t f2_445nm;
+        uint16_t f3_480nm;
+        uint16_t f4_515nm;
+        uint16_t f5_555nm;
+
+        uint16_t f6_590nm;
+        uint16_t f7_630nm;
+        uint16_t f8_680nm;
+
+        uint16_t clear;
+        uint16_t nir;
+    };
+
+    class AS7341Driver {
+
     private:
+
         bool simulation_mode;
         bool hardware_ready;
+
         Config current_config;
 
-    public:
-        BH1750Driver();
+        void apply_hardware_config();
 
-        /**
-         * Inicializa el sensor
-         */
+        uint8_t map_gain(uint16_t gain);
+
+    public:
+
+        AS7341Driver();
+
         bool begin();
 
-        /**
-         * Activa/desactiva simulación
-         */
         void set_simulation_mode(bool enabled);
 
-        /**
-         * Aplica configuración validada
-         */
         bool apply_config(const Config& cfg);
 
-        /**
-         * Retorna configuración actual
-         */
         Config get_config() const;
 
-        /**
-         * Lee iluminancia
-         * NAN en caso de error
-         */
-        BH1750Data read();
+        AS7341Data read();
+
+        bool is_ready() const;
     };
 
 }

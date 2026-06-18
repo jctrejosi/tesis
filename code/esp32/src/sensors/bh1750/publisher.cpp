@@ -1,30 +1,33 @@
-#include "sensors/bh1750/publisher.h"
+#include "sensors/as7341/publisher.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include "mqtt/client.h"
 
-namespace bh1750 {
+namespace as7341 {
 
-    void Publisher::publish(const BH1750Data& data) {
-        if (isnan(data.illuminance)) {
-            Serial.println("[BH1750] dato inválido");
-            return;
-        }
+    void Publisher::publish(const AS7341Data& data) {
+        StaticJsonDocument<384> doc;
 
-        StaticJsonDocument<128> doc;
+        doc["f1_415nm"] = data.f1_415nm;
+        doc["f2_445nm"] = data.f2_445nm;
+        doc["f3_480nm"] = data.f3_480nm;
+        doc["f4_515nm"] = data.f4_515nm;
+        doc["f5_555nm"] = data.f5_555nm;
+        doc["f6_590nm"] = data.f6_590nm;
+        doc["f7_630nm"] = data.f7_630nm;
+        doc["f8_680nm"] = data.f8_680nm;
+        doc["clear"] = data.clear;
+        doc["nir"] = data.nir;
 
-        doc["illuminance"] = data.illuminance;
-        doc["unit"] = "lux";
-
-        char buffer[128];
+        char buffer[384];
         serializeJson(doc, buffer, sizeof(buffer));
 
-        Serial.print("[BH1750] publish: ");
+        Serial.print("[AS7341] publish: ");
         Serial.println(buffer);
 
-        if (!publish_message("growbox/bh1750/data", buffer)) {
-            Serial.println("[BH1750] error al publicar MQTT");
+        if (!publish_message("growbox/as7341/data", buffer)) {
+            Serial.println("[AS7341] error al publicar MQTT");
         }
     }
 
