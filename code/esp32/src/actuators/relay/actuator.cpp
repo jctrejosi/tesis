@@ -6,12 +6,7 @@
 namespace relay {
 
     void Sensor::init() {
-
         config = storage::load_relay_config();
-
-        if (!driver.apply_config(config)) {
-            Serial.println("[RELAY] config inválida (driver)");
-        }
 
         if (!driver.begin(config)) {
             Serial.println("[RELAY] init failed");
@@ -22,23 +17,21 @@ namespace relay {
     }
 
     RelayConfig Sensor::get_config() const {
-        return config;
+        return driver.get_config();
     }
 
     bool Sensor::apply_config(const RelayConfig& cfg) {
-
         if (!validate_config(cfg)) {
             Serial.println("[RELAY] config inválida");
             return false;
         }
-
-        config = cfg;
 
         if (!driver.apply_config(cfg)) {
             Serial.println("[RELAY] driver reject config");
             return false;
         }
 
+        config = cfg;
         storage::save_relay_config(cfg);
 
         return true;

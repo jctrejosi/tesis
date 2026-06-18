@@ -1,90 +1,166 @@
 #include "router.h"
 
 #include "sensors/bme680/command_handler.h"
-#include "sensors/bh1750/command_handler.h"
+#include "sensors/as7341/command_handler.h"
 #include "sensors/ds18b20/command_handler.h"
 #include "sensors/mhz19b/command_handler.h"
 #include "sensors/soil_ec_rs485/command_handler.h"
+#include "sensors/dfrobot_sen0193/command_handler.h"
+
 #include "actuators/relay/command_handler.h"
 
+#include <Arduino.h>
 #include <cstring>
 
-void route_message(const char* topic, const char* payload) {
+void route_message(
+    const char* topic,
+    const char* payload
+) {
 
-    char topic_copy[64];
-    strncpy(topic_copy, topic, sizeof(topic_copy));
+    char topic_copy[128];
+
+    strncpy(
+        topic_copy,
+        topic,
+        sizeof(topic_copy)
+    );
+
     topic_copy[sizeof(topic_copy) - 1] = '\0';
 
-    char* base = strtok(topic_copy, "/");
-    char* module = strtok(NULL, "/");
-    char* sensor = strtok(NULL, "/");
-    char* target  = strtok(NULL, "/");
-    char* command = strtok(NULL, "/");
+    char* root = strtok(topic_copy, "/");
+    char* module = strtok(nullptr, "/");
+    char* command = strtok(nullptr, "/");
 
-    if (!base || !sensor || !command) return;
-    if (strcmp(base, "growbox") != 0) return;
+    if (
+        root == nullptr ||
+        module == nullptr ||
+        command == nullptr
+    ) {
+        Serial.println("[ROUTER] topic inválido");
+        return;
+    }
 
-    // ===== BME680 =====
-    if (strcmp(sensor, "bme680") == 0) {
+    if (strcmp(root, "growbox") != 0) {
+        return;
+    }
+
+    // =====================
+    // BME680
+    // =====================
+
+    if (strcmp(module, "bme680") == 0) {
 
         if (strcmp(command, "read") == 0) {
             bme680::handle_read_command();
-        } else if (strcmp(command, "config") == 0) {
+        }
+
+        else if (strcmp(command, "config") == 0) {
             bme680::handle_config_command(payload);
         }
+
+        return;
     }
 
-    // ===== BH1750 =====
-    else if (strcmp(sensor, "bh1750") == 0) {
+    // =====================
+    // AS7341
+    // =====================
+
+    if (strcmp(module, "as7341") == 0) {
 
         if (strcmp(command, "read") == 0) {
-            bh1750::handle_read_command();
-        } else if (strcmp(command, "config") == 0) {
-            bh1750::handle_config_command(payload);
+            as7341::handle_read_command();
         }
+
+        else if (strcmp(command, "config") == 0) {
+            as7341::handle_config_command(payload);
+        }
+
+        return;
     }
 
-    // ===== DS18B20 =====
-    else if (strcmp(sensor, "ds18b20") == 0) {
+    // =====================
+    // DS18B20
+    // =====================
+
+    if (strcmp(module, "ds18b20") == 0) {
 
         if (strcmp(command, "read") == 0) {
             ds18b20::handle_read_command();
-        } else if (strcmp(command, "config") == 0) {
+        }
+
+        else if (strcmp(command, "config") == 0) {
             ds18b20::handle_config_command(payload);
         }
+
+        return;
     }
 
-    // ===== MH-Z19B =====
-    else if (strcmp(sensor, "mhz19b") == 0) {
+    // =====================
+    // MHZ19B
+    // =====================
+
+    if (strcmp(module, "mhz19b") == 0) {
 
         if (strcmp(command, "read") == 0) {
             mhz19b::handle_read_command();
-        } else if (strcmp(command, "config") == 0) {
+        }
+
+        else if (strcmp(command, "config") == 0) {
             mhz19b::handle_config_command(payload);
         }
+
+        return;
     }
 
-    // ===== SOIL EC RS485 =====
-    else if (strcmp(sensor, "soil_ec_rs485") == 0) {
+    // =====================
+    // SOIL EC RS485
+    // =====================
+
+    if (strcmp(module, "soil_ec_rs485") == 0) {
 
         if (strcmp(command, "read") == 0) {
             soil_ec_rs485::handle_read_command();
-        } else if (strcmp(command, "config") == 0) {
+        }
+
+        else if (strcmp(command, "config") == 0) {
             soil_ec_rs485::handle_config_command(payload);
         }
+
+        return;
     }
 
-    // ===== RELAY =====
-    else if (strcmp(module, "relay") == 0) {
+    // =====================
+    // SEN0193
+    // =====================
+
+    if (strcmp(module, "dfrobot_sen0193") == 0) {
 
         if (strcmp(command, "read") == 0) {
-            relay::handle_read_command(payload);
+            dfrobot_sen0193::handle_read_command();
         }
-        else if (strcmp(command, "set") == 0) {
-            relay::handle_set_command(payload);
-        }
+
         else if (strcmp(command, "config") == 0) {
+            dfrobot_sen0193::handle_config_command(payload);
+        }
+
+        return;
+    }
+
+    // =====================
+    // RELAY
+    // =====================
+
+    if (strcmp(module, "relay") == 0) {
+        if (strcmp(command, "read") == 0 || strcmp(command, "state") == 0) {
+            relay::handle_read_command(payload);
+        } else if (strcmp(command, "set") == 0) {
+            relay::handle_set_command(payload);
+        } else if (strcmp(command, "config") == 0) {
             relay::handle_config_command(payload);
         }
+        return;
     }
+
+    Serial.print("[ROUTER] módulo desconocido: ");
+    Serial.println(module);
 }

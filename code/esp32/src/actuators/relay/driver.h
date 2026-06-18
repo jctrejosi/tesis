@@ -1,19 +1,19 @@
 #pragma once
 
 #include <Arduino.h>
-
-#include "actuators/relay/relay.h"
+#include "actuators/relay/config.h"
 
 namespace relay {
 
     class RelayDriver {
-
     private:
         RelayConfig config;
-
         uint8_t pins[4];
+        RelayState states[4];
+        bool ready;
 
         void write_pin(uint8_t pin, bool state);
+        void write_pin_with_config(const RelayConfig& cfg, uint8_t pin, bool state);
 
     public:
         RelayDriver();

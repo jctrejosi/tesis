@@ -1,29 +1,35 @@
-#include "command_handler.h"
+#include "actuators/relay/command_handler.h"
+
+#include "actuators/relay/actuator.h"
+#include "actuators/relay/publisher.h"
+#include "actuators/relay/config.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
-
-#include "sensor.h"
-#include "publisher.h"
-
-#include "sensors/sensor_manager.h"
+#include <cstring>
 
 namespace relay {
 
-    // referencia global (en sensor_manager)
-    extern Sensor relay_sensor;
+    static Sensor relay_sensor;
+    static bool relay_initialized = false;
+
+    static void ensure_initialized() {
+        if (!relay_initialized) {
+            relay_sensor.init();
+            relay_initialized = true;
+        }
+    }
 
     void handle_read_command(const char* payload) {
         (void)payload;
-
-        // publica estado completo
+        ensure_initialized();
         Publisher::publish_all_state(relay_sensor);
     }
 
     void handle_set_command(const char* payload) {
+        ensure_initialized();
 
         StaticJsonDocument<128> doc;
-
         DeserializationError err = deserializeJson(doc, payload);
 
         if (err) {
@@ -32,14 +38,12 @@ namespace relay {
         }
 
         int channel = doc["channel"] | -1;
-
         if (channel < 1 || channel > 4) {
             Serial.println("[RELAY] canal inválido");
             return;
         }
 
         const char* state_str = doc["state"] | "";
-
         RelayState state;
 
         if (strcmp(state_str, "ON") == 0) {
@@ -51,15 +55,14 @@ namespace relay {
             return;
         }
 
-        relay_sensor.set_channel(channel, state);
-
-        Publisher::publish_state(channel, state);
+        relay_sensor.set_channel(static_cast<uint8_t>(channel), state);
+        Publisher::publish_state(static_cast<uint8_t>(channel), state);
     }
 
     void handle_config_command(const char* payload) {
+        ensure_initialized();
 
         StaticJsonDocument<256> doc;
-
         DeserializationError err = deserializeJson(doc, payload);
 
         if (err) {
@@ -73,7 +76,6 @@ namespace relay {
         if (doc.containsKey("pin_in2")) cfg.pin_in2 = doc["pin_in2"];
         if (doc.containsKey("pin_in3")) cfg.pin_in3 = doc["pin_in3"];
         if (doc.containsKey("pin_in4")) cfg.pin_in4 = doc["pin_in4"];
-
         if (doc.containsKey("inverted")) cfg.inverted = doc["inverted"];
         if (doc.containsKey("simulation")) cfg.simulation = doc["simulation"];
 

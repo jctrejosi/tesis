@@ -6,7 +6,6 @@
 namespace relay {
 
     class Sensor {
-
     private:
         RelayDriver driver;
         RelayConfig config;
