@@ -7,6 +7,10 @@
 #include "sensors/as7341/publisher.h"
 #include "sensors/as7341/config_store.h"
 
+#include "sensors/dfrobot_sen0193/sensor.h"
+#include "sensors/dfrobot_sen0193/publisher.h"
+#include "sensors/dfrobot_sen0193/config_store.h"
+
 #include "sensors/ds18b20/sensor.h"
 #include "sensors/ds18b20/publisher.h"
 #include "sensors/ds18b20/config_store.h"

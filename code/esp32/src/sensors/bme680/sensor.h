@@ -13,12 +13,13 @@ namespace bme680 {
     public:
         void init();
 
-        bool begin() override;
+        void begin();
         BME680Data read() override;
 
         bool apply_config(const Config& cfg);
         Config get_config() const;
 
+        const BME680Driver& get_driver() const;
         BME680Driver& get_driver();
     };
 

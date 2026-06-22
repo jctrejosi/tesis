@@ -60,6 +60,7 @@ namespace bme680 {
 
         if (simulation_mode) {
             hardware_ready = false;
+            Serial.println("BME680 en modo simulación");
             return true;
         }
 

@@ -6,7 +6,7 @@ namespace bme680 {
 
     class IBME680 {
     public:
-        virtual bool begin() = 0;
+        virtual void begin() = 0;
         virtual BME680Data read() = 0;
         virtual ~IBME680() = default;
     };

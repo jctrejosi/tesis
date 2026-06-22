@@ -6,7 +6,9 @@ namespace storage {
     Preferences prefs;
 
     bool save_bme680_config(const bme680::Config& cfg) {
-        prefs.begin("bme680", false);
+        if (!prefs.begin("bme680", false)) {
+            return false;
+        }
 
         prefs.putULong("interval", cfg.interval_ms);
         prefs.putBool("sim", cfg.simulation);
@@ -25,23 +27,30 @@ namespace storage {
     }
 
     bme680::Config load_bme680_config() {
-        prefs.begin("bme680", true);
+        bme680::Config cfg = bme680::get_default_config();
 
-        bme680::Config cfg;
+        if (!prefs.begin("bme680", true)) {
+            return cfg;
+        }
 
-        cfg.interval_ms = prefs.getULong("interval", 10000);
-        cfg.simulation = prefs.getBool("sim", true);
+        cfg.interval_ms = prefs.getULong("interval", cfg.interval_ms);
+        cfg.simulation = prefs.getBool("sim", cfg.simulation);
 
-        cfg.temp_oversample = prefs.getUChar("temp_os", 8);
-        cfg.hum_oversample = prefs.getUChar("hum_os", 2);
-        cfg.press_oversample = prefs.getUChar("press_os", 4);
+        cfg.temp_oversample = prefs.getUChar("temp_os", cfg.temp_oversample);
+        cfg.hum_oversample = prefs.getUChar("hum_os", cfg.hum_oversample);
+        cfg.press_oversample = prefs.getUChar("press_os", cfg.press_oversample);
 
-        cfg.iir_filter = prefs.getUChar("iir", 3);
+        cfg.iir_filter = prefs.getUChar("iir", cfg.iir_filter);
 
-        cfg.gas_heater_temp = prefs.getUShort("gas_temp", 320);
-        cfg.gas_heater_duration = prefs.getUShort("gas_dur", 150);
+        cfg.gas_heater_temp = prefs.getUShort("gas_temp", cfg.gas_heater_temp);
+        cfg.gas_heater_duration = prefs.getUShort("gas_dur", cfg.gas_heater_duration);
 
         prefs.end();
+
+        if (!bme680::validate_config(cfg)) {
+            return bme680::get_default_config();
+        }
+
         return cfg;
     }
 

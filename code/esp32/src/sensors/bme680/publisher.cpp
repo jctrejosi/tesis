@@ -17,7 +17,8 @@ namespace bme680 {
         char payload[128];
         serializeJson(json, payload, sizeof(payload));
 
-        bool ok = publish_message("growbox/bme680", payload);
+        static constexpr const char* TOPIC = "growbox/bme680/data";
+        bool ok = publish_message(TOPIC, payload);
 
         if (ok) {
             Serial.print("[BME680] ");
