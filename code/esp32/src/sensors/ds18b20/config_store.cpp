@@ -19,11 +19,13 @@ namespace storage {
         prefs.putBool("use_addr", cfg.use_address);
 
         size_t written = prefs.putBytes("addr", cfg.address, 8);
+        prefs.end();
+
         if (written != 8) {
             Serial.println("[DS18B20] error guardando address");
+            return false;
         }
 
-        prefs.end();
         return true;
     }
 

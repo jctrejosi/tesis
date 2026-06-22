@@ -36,7 +36,10 @@ namespace ds18b20 {
     void Sensor::set_simulation(bool enabled) {
         Config cfg = driver.get_config();
         cfg.simulation = enabled;
-        driver.apply_config(cfg);
+
+        if (!driver.apply_config(cfg)) {
+            Serial.println("[DS18B20] no se pudo aplicar simulation");
+        }
     }
 
     DS18B20Driver& Sensor::get_driver() {
