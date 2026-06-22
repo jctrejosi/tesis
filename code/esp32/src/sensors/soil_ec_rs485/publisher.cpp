@@ -9,8 +9,6 @@
 namespace soil_ec_rs485 {
 
     void Publisher::publish(const SoilECData& data) {
-
-        // ===== validación básica =====
         if (isnan(data.ec_raw)) {
             Serial.println("[SOIL_EC_RS485] EC inválido");
             return;

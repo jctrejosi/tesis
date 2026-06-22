@@ -7,7 +7,6 @@ namespace soil_ec_rs485 {
 
     struct Config {
         uint32_t interval_ms = 5000;
-
         bool simulation = false;
 
         // UART / RS485
@@ -17,8 +16,8 @@ namespace soil_ec_rs485 {
         // pines RS485 (ESP32 típico)
         int8_t rx_pin = 16;
         int8_t tx_pin = 17;
-        int8_t de_pin = -1;   // opcional control DE/RE
-        int8_t re_pin = -1;
+        int8_t de_pin = -1;   // opcional control DE
+        int8_t re_pin = -1;   // opcional control RE
 
         // lógica del sensor
         bool use_temperature_compensation = true;
@@ -29,9 +28,7 @@ namespace soil_ec_rs485 {
     };
 
     Config get_default_config();
-
     bool validate_config(const Config& cfg);
-
     void print_config(const Config& cfg);
 
 }

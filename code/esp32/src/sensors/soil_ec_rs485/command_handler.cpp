@@ -1,6 +1,6 @@
 #include "sensors/soil_ec_rs485/command_handler.h"
 
-#include "sensors/soil_ec_rs485/sensor.h"
+#include "sensors/soil_ec_rs485/config_store.h"
 #include "sensors/sensor_manager.h"
 
 #include <ArduinoJson.h>
@@ -8,51 +8,70 @@
 
 namespace soil_ec_rs485 {
 
-    // =========================================================
-    // comando: read
-    // =========================================================
     void handle_read_command() {
         sensors::publish_soil_ec_rs485_now();
     }
 
-    // =========================================================
-    // comando: config
-    // =========================================================
     void handle_config_command(const char* payload) {
-
-        StaticJsonDocument<256> doc;
+        StaticJsonDocument<384> doc;
 
         DeserializationError err = deserializeJson(doc, payload);
-
         if (err) {
             Serial.println("[SOIL_EC_RS485] JSON inválido");
             return;
         }
 
-        Config cfg = get_default_config();
+        Config cfg = storage::load_soil_ec_rs485_config();
 
-        // ===== parámetros base =====
-        if (doc.containsKey("interval_ms"))
+        if (doc.containsKey("interval_ms")) {
             cfg.interval_ms = doc["interval_ms"];
+        }
 
-        if (doc.containsKey("simulation"))
+        if (doc.containsKey("simulation")) {
             cfg.simulation = doc["simulation"];
+        }
 
-        // ===== RS485 config =====
-        if (doc.containsKey("baudrate"))
+        if (doc.containsKey("uart_port")) {
+            cfg.uart_port = doc["uart_port"];
+        }
+
+        if (doc.containsKey("baudrate")) {
             cfg.baudrate = doc["baudrate"];
+        }
 
-        // =====================================================
-        // validación
-        // =====================================================
+        if (doc.containsKey("rx_pin")) {
+            cfg.rx_pin = doc["rx_pin"];
+        }
+
+        if (doc.containsKey("tx_pin")) {
+            cfg.tx_pin = doc["tx_pin"];
+        }
+
+        if (doc.containsKey("de_pin")) {
+            cfg.de_pin = doc["de_pin"];
+        }
+
+        if (doc.containsKey("re_pin")) {
+            cfg.re_pin = doc["re_pin"];
+        }
+
+        if (doc.containsKey("use_temperature_compensation")) {
+            cfg.use_temperature_compensation = doc["use_temperature_compensation"];
+        }
+
+        if (doc.containsKey("retries")) {
+            cfg.retries = doc["retries"];
+        }
+
+        if (doc.containsKey("response_timeout_ms")) {
+            cfg.response_timeout_ms = doc["response_timeout_ms"];
+        }
+
         if (!validate_config(cfg)) {
             Serial.println("[SOIL_EC_RS485] config inválida");
             return;
         }
 
-        // =====================================================
-        // aplicar vía sensor_manager (no directo al driver)
-        // =====================================================
         if (!sensors::apply_soil_ec_rs485_config(cfg)) {
             Serial.println("[SOIL_EC_RS485] no se pudo aplicar config");
             return;

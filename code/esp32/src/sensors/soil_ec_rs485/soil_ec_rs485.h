@@ -3,8 +3,8 @@
 namespace soil_ec_rs485 {
 
     struct SoilECData {
-        float ec_raw;        // mS/cm
-        float temperature;   // °C (si el sensor lo entrega)
+        float ec_raw;      // mS/cm
+        float temperature;  // °C, si el sensor lo entrega
     };
 
     class ISOilEC {

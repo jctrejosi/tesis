@@ -26,14 +26,16 @@ namespace soil_ec_rs485 {
     }
 
     bool validate_config(const Config& cfg) {
-
         if (cfg.interval_ms < 1000) return false;
         if (cfg.interval_ms > 600000) return false;
 
+        if (cfg.uart_port > 2) return false;
         if (cfg.baudrate < 1200 || cfg.baudrate > 115200) return false;
 
         if (cfg.rx_pin < -1 || cfg.rx_pin > 39) return false;
         if (cfg.tx_pin < -1 || cfg.tx_pin > 39) return false;
+        if (cfg.de_pin < -1 || cfg.de_pin > 39) return false;
+        if (cfg.re_pin < -1 || cfg.re_pin > 39) return false;
 
         if (cfg.retries == 0 || cfg.retries > 10) return false;
 
@@ -43,7 +45,6 @@ namespace soil_ec_rs485 {
     }
 
     void print_config(const Config& cfg) {
-
         Serial.println("---- SOIL EC RS485 CONFIG ----");
 
         Serial.print("interval_ms: ");
@@ -63,6 +64,12 @@ namespace soil_ec_rs485 {
 
         Serial.print("tx_pin: ");
         Serial.println(cfg.tx_pin);
+
+        Serial.print("de_pin: ");
+        Serial.println(cfg.de_pin);
+
+        Serial.print("re_pin: ");
+        Serial.println(cfg.re_pin);
 
         Serial.print("use_temp_comp: ");
         Serial.println(cfg.use_temperature_compensation);

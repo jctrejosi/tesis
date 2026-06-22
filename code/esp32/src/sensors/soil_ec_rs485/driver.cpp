@@ -4,19 +4,73 @@
 
 namespace soil_ec_rs485 {
 
+    static constexpr uint8_t MODBUS_SLAVE_ID = 0x01;
+    static constexpr uint8_t MODBUS_FUNC_READ_HOLDING_REGS = 0x03;
+    static constexpr uint16_t MODBUS_START_REG = 0x0000;   // placeholder: ajustar al datasheet real
+    static constexpr uint16_t MODBUS_REG_COUNT = 0x0002;   // placeholder: 2 registros
+    static constexpr size_t MODBUS_RESPONSE_LEN = 9;
+
     SoilECDriver::SoilECDriver()
         : simulation_mode(false),
           hardware_ready(false),
+          current_config(get_default_config()),
           serial(nullptr) {}
 
+    void SoilECDriver::release_serial() {
+        if (serial != nullptr) {
+            serial->end();
+            delete serial;
+            serial = nullptr;
+        }
+    }
+
+    void SoilECDriver::set_transmit_mode() {
+        if (current_config.de_pin >= 0) {
+            digitalWrite(current_config.de_pin, HIGH);
+        }
+
+        if (current_config.re_pin >= 0) {
+            digitalWrite(current_config.re_pin, HIGH);
+        }
+    }
+
+    void SoilECDriver::set_receive_mode() {
+        if (current_config.de_pin >= 0) {
+            digitalWrite(current_config.de_pin, LOW);
+        }
+
+        if (current_config.re_pin >= 0) {
+            digitalWrite(current_config.re_pin, LOW);
+        }
+    }
+
     bool SoilECDriver::begin() {
+        randomSeed(millis());
 
         if (simulation_mode) {
+            release_serial();
             hardware_ready = false;
             return true;
         }
 
+        release_serial();
+
         serial = new HardwareSerial(current_config.uart_port);
+        if (serial == nullptr) {
+            Serial.println("[SOIL_EC_RS485] no se pudo crear HardwareSerial");
+            hardware_ready = false;
+            return false;
+        }
+
+        if (current_config.de_pin >= 0) {
+            pinMode(current_config.de_pin, OUTPUT);
+        }
+
+        if (current_config.re_pin >= 0) {
+            pinMode(current_config.re_pin, OUTPUT);
+        }
+
+        set_receive_mode();
 
         serial->begin(
             current_config.baudrate,
@@ -31,7 +85,6 @@ namespace soil_ec_rs485 {
         hardware_ready = true;
 
         Serial.println("[SOIL_EC_RS485] iniciado");
-
         return true;
     }
 
@@ -41,14 +94,37 @@ namespace soil_ec_rs485 {
     }
 
     bool SoilECDriver::apply_config(const Config& cfg) {
-
         if (!validate_config(cfg)) {
             Serial.println("[SOIL_EC_RS485] config inválida");
             return false;
         }
 
+        const bool hardware_changed =
+            current_config.uart_port != cfg.uart_port ||
+            current_config.baudrate != cfg.baudrate ||
+            current_config.rx_pin != cfg.rx_pin ||
+            current_config.tx_pin != cfg.tx_pin ||
+            current_config.de_pin != cfg.de_pin ||
+            current_config.re_pin != cfg.re_pin;
+
+        const bool simulation_changed = current_config.simulation != cfg.simulation;
+
         current_config = cfg;
         simulation_mode = cfg.simulation;
+
+        if (simulation_mode) {
+            release_serial();
+            hardware_ready = false;
+            return true;
+        }
+
+        if (hardware_ready && (hardware_changed || simulation_changed)) {
+            return begin();
+        }
+
+        if (!hardware_ready && simulation_changed) {
+            return begin();
+        }
 
         return true;
     }
@@ -66,39 +142,75 @@ namespace soil_ec_rs485 {
     }
 
     bool SoilECDriver::send_request() {
-
         if (!serial) return false;
 
-        // comando genérico (depende del fabricante)
-        uint8_t request[3] = {0x01, 0x03, 0x00};
+        // Placeholder Modbus RTU válido.
+        // Ajustar slave id, registro inicial y cantidad según el sensor real.
+        uint8_t request[8] = {
+            MODBUS_SLAVE_ID,
+            MODBUS_FUNC_READ_HOLDING_REGS,
+            static_cast<uint8_t>(MODBUS_START_REG >> 8),
+            static_cast<uint8_t>(MODBUS_START_REG & 0xFF),
+            static_cast<uint8_t>(MODBUS_REG_COUNT >> 8),
+            static_cast<uint8_t>(MODBUS_REG_COUNT & 0xFF),
+            0x00,
+            0x00
+        };
 
+        const uint16_t crc = calculate_crc(request, 6);
+        request[6] = static_cast<uint8_t>(crc & 0xFF);
+        request[7] = static_cast<uint8_t>((crc >> 8) & 0xFF);
+
+        set_transmit_mode();
         serial->write(request, sizeof(request));
+        serial->flush();
+        delay(2);
+        set_receive_mode();
 
         return true;
     }
 
     bool SoilECDriver::read_response(uint8_t* buffer, size_t len) {
+        if (!serial || buffer == nullptr || len == 0) return false;
 
         unsigned long start = millis();
-
         size_t index = 0;
 
         while ((millis() - start) < current_config.response_timeout_ms) {
-
-            if (serial->available()) {
-                buffer[index++] = serial->read();
-
-                if (index >= len) {
-                    return true;
-                }
+            while (serial->available() && index < len) {
+                buffer[index++] = static_cast<uint8_t>(serial->read());
             }
+
+            if (index >= len) {
+                return true;
+            }
+
+            delay(1);
         }
 
         return false;
     }
 
-    SoilECData SoilECDriver::read() {
+    uint16_t SoilECDriver::calculate_crc(const uint8_t* data, size_t len) const {
+        uint16_t crc = 0xFFFF;
 
+        for (size_t i = 0; i < len; ++i) {
+            crc ^= data[i];
+
+            for (uint8_t j = 0; j < 8; ++j) {
+                if (crc & 0x0001) {
+                    crc >>= 1;
+                    crc ^= 0xA001;
+                } else {
+                    crc >>= 1;
+                }
+            }
+        }
+
+        return crc;
+    }
+
+    SoilECData SoilECDriver::read() {
         SoilECData data{};
         data.ec_raw = NAN;
         data.temperature = NAN;
@@ -114,29 +226,47 @@ namespace soil_ec_rs485 {
         }
 
         for (uint8_t attempt = 0; attempt < current_config.retries; attempt++) {
-
             clear_serial();
 
             if (!send_request()) {
                 continue;
             }
 
-            delay(100);
-
-            uint8_t buffer[8];
+            uint8_t buffer[MODBUS_RESPONSE_LEN] = {0};
 
             if (!read_response(buffer, sizeof(buffer))) {
                 continue;
             }
 
-            // parsing genérico (AJUSTAR según sensor real)
-            uint16_t ec_raw_int = (buffer[2] << 8) | buffer[3];
-            uint16_t temp_int   = (buffer[4] << 8) | buffer[5];
+            if (buffer[0] != MODBUS_SLAVE_ID ||
+                buffer[1] != MODBUS_FUNC_READ_HOLDING_REGS ||
+                buffer[2] != 0x04) {
+                continue;
+            }
+
+            const uint16_t received_crc =
+                static_cast<uint16_t>(buffer[7]) |
+                (static_cast<uint16_t>(buffer[8]) << 8);
+
+            const uint16_t calculated_crc = calculate_crc(buffer, 7);
+
+            if (received_crc != calculated_crc) {
+                Serial.println("[SOIL_EC_RS485] CRC inválido");
+                continue;
+            }
+
+            // Placeholder de parseo: ajustar según el mapa real del sensor.
+            const uint16_t ec_raw_int =
+                (static_cast<uint16_t>(buffer[3]) << 8) |
+                static_cast<uint16_t>(buffer[4]);
+
+            const uint16_t temp_int =
+                (static_cast<uint16_t>(buffer[5]) << 8) |
+                static_cast<uint16_t>(buffer[6]);
 
             data.ec_raw = ec_raw_int / 100.0f;
             data.temperature = temp_int / 10.0f;
 
-            // validación básica
             if (data.ec_raw < 0 || data.ec_raw > 20) {
                 data.ec_raw = NAN;
             }
@@ -149,7 +279,6 @@ namespace soil_ec_rs485 {
         }
 
         Serial.println("[SOIL_EC_RS485] fallo en lectura");
-
         return data;
     }
 
