@@ -1,0 +1,415 @@
+----- command_handler.cpp -----
+#include "sensors/bme680/command_handler.h"
+#include "sensors/sensor_manager.h"
+#include "sensors/bme680/config.h"
+
+#include <ArduinoJson.h>
+#include <Arduino.h>
+namespace bme680 {
+
+    void handle_read_command() {
+        sensors::publish_bme680_now();
+    }
+
+    void handle_config_command(const char* payload) {
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, payload);
+
+        if (error) {
+            Serial.println("[BME680] config JSON inválido");
+            return;
+        }
+
+        Config cfg;
+        cfg.interval_ms = doc["interval_ms"] | 10000;
+        cfg.simulation = doc["simulation"] | false;
+        cfg.temp_oversample = doc["temp_oversample"] | 8;
+        cfg.hum_oversample = doc["hum_oversample"] | 2;
+        cfg.press_oversample = doc["press_oversample"] | 4;
+        cfg.iir_filter = doc["iir_filter"] | 3;
+        cfg.gas_heater_temp = doc["gas_heater_temp"] | 320;
+        cfg.gas_heater_duration = doc["gas_heater_duration"] | 150;
+
+        if (!bme680::validate_config(cfg)) {
+            Serial.println("[BME680] config inválida");
+            return;
+        }
+
+        if (!sensors::apply_bme680_config(cfg)) {
+            Serial.println("[BME680] no se pudo aplicar la configuración");
+            return;
+        }
+
+        Serial.println("[BME680] nueva configuración aplicada");
+    }
+
+}
+----- config.cpp -----
+#include "sensors/bme680/config.h"
+#include <Arduino.h>
+
+namespace bme680 {
+
+    Config get_default_config() {
+        Config cfg;
+
+        cfg.interval_ms = 10000;
+        cfg.simulation = true;
+
+        cfg.temp_oversample = 8;
+        cfg.hum_oversample = 2;
+        cfg.press_oversample = 4;
+
+        cfg.iir_filter = 3;
+
+        cfg.gas_heater_temp = 320;
+        cfg.gas_heater_duration = 150;
+
+        return cfg;
+    }
+
+    static bool is_valid_oversample(uint8_t value) {
+        return value == 0 || value == 1 || value == 2 || value == 4 || value == 8 || value == 16;
+    }
+
+    static bool is_valid_filter(uint8_t value) {
+        return value == 0 || value == 1 || value == 3 || value == 7 ||
+            value == 15 || value == 31 || value == 63 || value == 127;
+    }
+
+    bool validate_config(const Config& cfg) {
+        if (cfg.interval_ms < 1000) return false;
+        if (cfg.interval_ms > 3600000) return false;
+
+        if (!is_valid_oversample(cfg.temp_oversample)) return false;
+        if (!is_valid_oversample(cfg.hum_oversample)) return false;
+        if (!is_valid_oversample(cfg.press_oversample)) return false;
+
+        if (!is_valid_filter(cfg.iir_filter)) return false;
+
+        if (cfg.gas_heater_temp < 200 || cfg.gas_heater_temp > 400) return false;
+        if (cfg.gas_heater_duration > 300) return false;
+
+        return true;
+    }
+
+    void print_config(const Config& cfg) {
+        Serial.println("---- BME680 CONFIG ----");
+
+        Serial.print("interval_ms: ");
+        Serial.println(cfg.interval_ms);
+
+        Serial.print("simulation: ");
+        Serial.println(cfg.simulation);
+
+        Serial.print("temp_oversample: ");
+        Serial.println(cfg.temp_oversample);
+
+        Serial.print("hum_oversample: ");
+        Serial.println(cfg.hum_oversample);
+
+        Serial.print("press_oversample: ");
+        Serial.println(cfg.press_oversample);
+
+        Serial.print("iir_filter: ");
+        Serial.println(cfg.iir_filter);
+
+        Serial.print("gas_heater_temp: ");
+        Serial.println(cfg.gas_heater_temp);
+
+        Serial.print("gas_heater_duration: ");
+        Serial.println(cfg.gas_heater_duration);
+
+        Serial.println("------------------------");
+    }
+
+}
+----- config_store.cpp -----
+#include "sensors/bme680/config_store.h"
+#include <Preferences.h>
+
+namespace storage {
+
+    Preferences prefs;
+
+    bool save_bme680_config(const bme680::Config& cfg) {
+        if (!prefs.begin("bme680", false)) {
+            return false;
+        }
+
+        prefs.putULong("interval", cfg.interval_ms);
+        prefs.putBool("sim", cfg.simulation);
+
+        prefs.putUChar("temp_os", cfg.temp_oversample);
+        prefs.putUChar("hum_os", cfg.hum_oversample);
+        prefs.putUChar("press_os", cfg.press_oversample);
+
+        prefs.putUChar("iir", cfg.iir_filter);
+
+        prefs.putUShort("gas_temp", cfg.gas_heater_temp);
+        prefs.putUShort("gas_dur", cfg.gas_heater_duration);
+
+        prefs.end();
+        return true;
+    }
+
+    bme680::Config load_bme680_config() {
+        bme680::Config cfg = bme680::get_default_config();
+
+        if (!prefs.begin("bme680", true)) {
+            return cfg;
+        }
+
+        cfg.interval_ms = prefs.getULong("interval", cfg.interval_ms);
+        cfg.simulation = prefs.getBool("sim", cfg.simulation);
+
+        cfg.temp_oversample = prefs.getUChar("temp_os", cfg.temp_oversample);
+        cfg.hum_oversample = prefs.getUChar("hum_os", cfg.hum_oversample);
+        cfg.press_oversample = prefs.getUChar("press_os", cfg.press_oversample);
+
+        cfg.iir_filter = prefs.getUChar("iir", cfg.iir_filter);
+
+        cfg.gas_heater_temp = prefs.getUShort("gas_temp", cfg.gas_heater_temp);
+        cfg.gas_heater_duration = prefs.getUShort("gas_dur", cfg.gas_heater_duration);
+
+        prefs.end();
+
+        if (!bme680::validate_config(cfg)) {
+            return bme680::get_default_config();
+        }
+
+        return cfg;
+    }
+
+}
+----- driver.cpp -----
+#include "sensors/bme680/driver.h"
+
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_BME680.h>
+
+#define BME680_I2C_ADDRESS 0x76
+#define BME680_SDA_PIN 21
+#define BME680_SCL_PIN 22
+
+namespace bme680 {
+
+    static Adafruit_BME680 bme;
+
+    BME680Driver::BME680Driver()
+        : simulation_mode(false),
+        hardware_ready(false),
+        current_config(get_default_config()) {}
+
+    uint8_t BME680Driver::map_oversampling(uint8_t value) {
+        switch (value) {
+            case 0:  return BME680_OS_NONE;
+            case 1:  return BME680_OS_1X;
+            case 2:  return BME680_OS_2X;
+            case 4:  return BME680_OS_4X;
+            case 8:  return BME680_OS_8X;
+            case 16: return BME680_OS_16X;
+            default: return BME680_OS_8X;
+        }
+    }
+
+    uint8_t BME680Driver::map_filter(uint8_t value) {
+        switch (value) {
+            case 0:   return BME680_FILTER_SIZE_0;
+            case 1:   return BME680_FILTER_SIZE_1;
+            case 3:   return BME680_FILTER_SIZE_3;
+            case 7:   return BME680_FILTER_SIZE_7;
+            case 15:  return BME680_FILTER_SIZE_15;
+            case 31:  return BME680_FILTER_SIZE_31;
+            case 63:  return BME680_FILTER_SIZE_63;
+            case 127: return BME680_FILTER_SIZE_127;
+            default:  return BME680_FILTER_SIZE_3;
+        }
+    }
+
+    void BME680Driver::apply_hardware_config() {
+        if (!hardware_ready || simulation_mode) {
+            return;
+        }
+
+        bme.setTemperatureOversampling(map_oversampling(current_config.temp_oversample));
+        bme.setHumidityOversampling(map_oversampling(current_config.hum_oversample));
+        bme.setPressureOversampling(map_oversampling(current_config.press_oversample));
+        bme.setIIRFilterSize(map_filter(current_config.iir_filter));
+        bme.setGasHeater(current_config.gas_heater_temp, current_config.gas_heater_duration);
+    }
+
+    bool BME680Driver::begin() {
+        randomSeed(millis());
+
+        if (simulation_mode) {
+            hardware_ready = false;
+            Serial.println("BME680 en modo simulación");
+            return true;
+        }
+
+        Wire.begin(BME680_SDA_PIN, BME680_SCL_PIN);
+
+        if (!bme.begin(BME680_I2C_ADDRESS)) {
+            Serial.println("Error: no se encontró BME680 en I2C");
+            hardware_ready = false;
+            return false;
+        }
+
+        hardware_ready = true;
+        apply_hardware_config();
+
+        Serial.println("BME680 inicializado correctamente");
+        return true;
+    }
+
+    void BME680Driver::set_simulation_mode(bool enabled) {
+        simulation_mode = enabled;
+        current_config.simulation = enabled;
+    }
+
+    bool BME680Driver::apply_config(const Config& cfg) {
+        if (!validate_config(cfg)) {
+            Serial.println("Error: config BME680 inválida");
+            return false;
+        }
+
+        current_config = cfg;
+        simulation_mode = cfg.simulation;
+
+        if (hardware_ready && !simulation_mode) {
+            apply_hardware_config();
+        }
+
+        return true;
+    }
+
+    Config BME680Driver::get_config() const {
+        return current_config;
+    }
+
+    BME680Data BME680Driver::read() {
+        BME680Data data{};
+
+        if (simulation_mode) {
+            data.temperature = random(220, 320) / 10.0;
+            data.humidity = random(400, 800) / 10.0;
+            data.pressure = random(9900, 10300) / 10.0;
+            data.gas_resistance = random(100, 500);
+            return data;
+        }
+
+        if (!bme.performReading()) {
+            Serial.println("Error: lectura BME680 falló");
+
+            data.temperature = NAN;
+            data.humidity = NAN;
+            data.pressure = NAN;
+            data.gas_resistance = NAN;
+            return data;
+        }
+
+        data.temperature = bme.temperature;
+        data.humidity = bme.humidity;
+        data.pressure = bme.pressure / 100.0;
+        data.gas_resistance = bme.gas_resistance;
+
+        return data;
+    }
+
+}
+----- publisher.cpp -----
+#include "sensors/bme680/publisher.h"
+#include "mqtt/client.h"
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+
+namespace bme680 {
+
+    bool Publisher::publish(const BME680Data& data) {
+        StaticJsonDocument<128> json;
+
+        json["temperature"] = data.temperature;
+        json["humidity"] = data.humidity;
+        json["pressure"] = data.pressure;
+        json["gas"] = data.gas_resistance;
+
+        char payload[128];
+        serializeJson(json, payload, sizeof(payload));
+
+        static constexpr const char* TOPIC = "growbox/bme680/data";
+        bool ok = publish_message(TOPIC, payload);
+
+        if (ok) {
+            Serial.print("[BME680] ");
+            Serial.println(payload);
+        } else {
+            Serial.println("[BME680] publish failed");
+        }
+
+        return ok;
+    }
+
+}
+----- sensor.cpp -----
+#include "sensors/bme680/sensor.h"
+#include "sensors/bme680/config_store.h"
+#include <Arduino.h>
+
+namespace bme680 {
+
+    void Sensor::begin() {
+        Config cfg = storage::load_bme680_config();
+
+        if (!validate_config(cfg)) {
+            Serial.println("[BME680] config persistida inválida, usando default");
+            cfg = get_default_config();
+        }
+
+        if (!driver.apply_config(cfg)) {
+            Serial.println("[BME680] no se pudo aplicar config persistida");
+        }
+
+        if (!driver.begin()) {
+            Serial.println("[BME680] init failed");
+        } else {
+            Serial.println("[BME680] ready");
+        }
+    }
+
+    void Sensor::init() {
+        begin(); // compatibilidad si el resto del código aún llama init()
+    }
+
+    BME680Data Sensor::read() {
+        return driver.read();
+    }
+
+    bool Sensor::apply_config(const Config& cfg) {
+        if (!driver.apply_config(cfg)) {
+            return false;
+        }
+
+        if (!storage::save_bme680_config(cfg)) {
+            Serial.println("[BME680] no se pudo guardar config en NVS");
+            return false;
+        }
+
+        return true;
+    }
+
+    Config Sensor::get_config() const {
+        return driver.get_config();
+    }
+
+    BME680Driver& Sensor::get_driver() {
+        return driver;
+    }
+
+    const BME680Driver& Sensor::get_driver() const {
+        return driver;
+    }
+
+}

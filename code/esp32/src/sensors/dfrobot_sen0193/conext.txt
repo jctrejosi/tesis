@@ -1,0 +1,350 @@
+----- command_handler.cpp -----
+#include "command_handler.h"
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+
+#include "sensors/sensor_manager.h"
+#include "sensors/dfrobot_sen0193/config.h"
+#include "sensors/dfrobot_sen0193/sensor.h"
+#include "sensors/dfrobot_sen0193/config_store.h"
+
+namespace dfrobot_sen0193 {
+
+    void handle_read_command() {
+        sensors::publish_dfrobot_sen0193_now();
+    }
+
+    void handle_config_command(const char* payload) {
+
+        StaticJsonDocument<256> doc;
+
+        DeserializationError err = deserializeJson(doc, payload);
+
+        if (err) {
+            Serial.println("[SEN0193] JSON inválido");
+            return;
+        }
+
+        Config cfg = get_default_config();
+
+        // ===== general =====
+        cfg.interval_ms = doc["interval_ms"] | cfg.interval_ms;
+        cfg.simulation  = doc["simulation"]  | cfg.simulation;
+
+        // ===== hardware =====
+        cfg.adc_pin = doc["adc_pin"] | cfg.adc_pin;
+
+        // ===== calibración =====
+        if (doc.containsKey("dry_value")) {
+            cfg.dry_value = doc["dry_value"];
+        }
+
+        if (doc.containsKey("wet_value")) {
+            cfg.wet_value = doc["wet_value"];
+        }
+
+        // ===== filtrado =====
+        cfg.samples = doc["samples"] | cfg.samples;
+
+        // ===== validación =====
+        if (!validate_config(cfg)) {
+            Serial.println("[SEN0193] config inválida");
+            return;
+        }
+
+        // ===== aplicación en sistema =====
+        if (!sensors::apply_dfrobot_sen0193_config(cfg)) {
+            Serial.println("[SEN0193] no se pudo aplicar config");
+            return;
+        }
+
+        Serial.println("[SEN0193] config aplicada correctamente");
+    }
+
+}
+----- config.cpp -----
+#include "config.h"
+
+#include <Arduino.h>
+
+namespace dfrobot_sen0193 {
+
+    Config get_default_config() {
+        Config cfg;
+
+        // ===== defaults generales =====
+        cfg.interval_ms = 5000;
+        cfg.simulation = false;
+
+        // ===== hardware =====
+        cfg.adc_pin = 35;
+
+        // ===== calibración (valores típicos ESP32 + sensor capacitivo) =====
+        cfg.dry_value = 3200;
+        cfg.wet_value = 1400;
+
+        // ===== filtrado =====
+        cfg.samples = 10;
+
+        return cfg;
+    }
+
+    bool validate_config(const Config& cfg) {
+
+        // intervalo mínimo razonable
+        if (cfg.interval_ms < 1000) return false;
+        if (cfg.interval_ms > 3600000) return false;
+
+        // ADC válido ESP32
+        if (cfg.adc_pin > 39) return false;
+
+        // calibración lógica (seco debe ser mayor que húmedo)
+        if (cfg.dry_value <= cfg.wet_value) return false;
+
+        // rango razonable ADC
+        if (cfg.dry_value > 4095) return false;
+        if (cfg.wet_value > 4095) return false;
+
+        // samples para promedio
+        if (cfg.samples == 0) return false;
+        if (cfg.samples > 50) return false;
+
+        return true;
+    }
+
+}
+----- config_store.cpp -----
+#include <Preferences.h>
+#include <Arduino.h>
+
+#include "sensors/dfrobot_sen0193/config_store.h"
+
+namespace storage {
+
+    static Preferences prefs;
+
+    bool save_dfrobot_sen0193_config(const dfrobot_sen0193::Config& cfg) {
+
+        if (!prefs.begin("sen0193", false)) {
+            Serial.println("[SEN0193] no se pudo abrir NVS escritura");
+            return false;
+        }
+
+        prefs.putULong("interval", cfg.interval_ms);
+        prefs.putBool("sim", cfg.simulation);
+
+        prefs.putUChar("pin", cfg.adc_pin);
+
+        prefs.putUShort("dry", cfg.dry_value);
+        prefs.putUShort("wet", cfg.wet_value);
+
+        prefs.putUChar("samples", cfg.samples);
+
+        prefs.end();
+
+        return true;
+    }
+
+    dfrobot_sen0193::Config load_dfrobot_sen0193_config() {
+
+        dfrobot_sen0193::Config cfg = dfrobot_sen0193::get_default_config();
+
+        if (!prefs.begin("sen0193", true)) {
+            Serial.println("[SEN0193] NVS no disponible, usando defaults");
+            return cfg;
+        }
+
+        cfg.interval_ms = prefs.getULong("interval", cfg.interval_ms);
+        cfg.simulation  = prefs.getBool("sim", cfg.simulation);
+
+        cfg.adc_pin = prefs.getUChar("pin", cfg.adc_pin);
+
+        cfg.dry_value = prefs.getUShort("dry", cfg.dry_value);
+        cfg.wet_value = prefs.getUShort("wet", cfg.wet_value);
+
+        cfg.samples = prefs.getUChar("samples", cfg.samples);
+
+        prefs.end();
+
+        // importante: validación de seguridad
+        if (!dfrobot_sen0193::validate_config(cfg)) {
+
+            Serial.println("[SEN0193] config inválida en NVS, restaurando defaults");
+
+            cfg = dfrobot_sen0193::get_default_config();
+
+            save_dfrobot_sen0193_config(cfg);
+        }
+
+        return cfg;
+    }
+
+}
+----- driver.cpp -----
+#include "sensors/dfrobot_sen0193/driver.h"
+
+namespace dfrobot_sen0193 {
+
+    DFRobotSEN0193Driver::DFRobotSEN0193Driver()
+        : adc_pin(35),
+          simulation_mode(false),
+          dry_value(3200),
+          wet_value(1400),
+          last_filtered(0) {}
+
+    bool DFRobotSEN0193Driver::begin() {
+
+        if (simulation_mode) return true;
+
+        pinMode(adc_pin, INPUT);
+
+        // primera lectura para estabilizar ADC
+        read_raw();
+        delay(50);
+
+        return true;
+    }
+
+    uint32_t DFRobotSEN0193Driver::read_raw() {
+
+        if (simulation_mode) {
+            return random(wet_value, dry_value);
+        }
+
+        // promedio simple para reducir ruido
+        uint32_t sum = 0;
+
+        for (int i = 0; i < 10; i++) {
+            sum += analogRead(adc_pin);
+            delay(2);
+        }
+
+        last_filtered = sum / 10;
+        return last_filtered;
+    }
+
+    float DFRobotSEN0193Driver::map_to_percent(uint16_t raw) {
+
+        // protección contra división inválida
+        if (dry_value == wet_value) return 0.0f;
+
+        float percent = 100.0f * (dry_value - raw) / (float)(dry_value - wet_value);
+
+        // clamp
+        if (percent < 0.0f) percent = 0.0f;
+        if (percent > 100.0f) percent = 100.0f;
+
+        return percent;
+    }
+
+    SoilMoistureData DFRobotSEN0193Driver::read() {
+
+        SoilMoistureData data{};
+
+        uint16_t raw = read_raw();
+
+        data.raw_adc = raw;
+        data.moisture_percent = map_to_percent(raw);
+
+        return data;
+    }
+
+    void DFRobotSEN0193Driver::set_simulation_mode(bool enabled) {
+        simulation_mode = enabled;
+    }
+
+    void DFRobotSEN0193Driver::set_calibration(uint16_t dry, uint16_t wet) {
+        dry_value = dry;
+        wet_value = wet;
+    }
+
+    void DFRobotSEN0193Driver::set_pin(uint8_t pin) {
+        adc_pin = pin;
+    }
+
+}
+----- publisher.cpp -----
+#include "publisher.h"
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <math.h>
+
+#include "mqtt/client.h"
+
+namespace dfrobot_sen0193 {
+
+    void Publisher::publish(const SoilMoistureData& data) {
+
+        // ===== validación básica =====
+        if (isnan(data.moisture_percent)) {
+            Serial.println("[SEN0193] dato inválido (NaN)");
+            return;
+        }
+
+        StaticJsonDocument<128> doc;
+
+        doc["moisture_percent"] = data.moisture_percent;
+        doc["raw_adc"] = data.raw_adc;
+
+        doc["unit"] = "percent";
+
+        char buffer[128];
+
+        size_t len = serializeJson(doc, buffer, sizeof(buffer));
+
+        if (len == 0 || len >= sizeof(buffer)) {
+            Serial.println("[SEN0193] error serializando JSON");
+            return;
+        }
+
+        Serial.print("[SEN0193] publish: ");
+        Serial.println(buffer);
+
+        if (!publish_message("growbox/sen0193/data", buffer)) {
+            Serial.println("[SEN0193] error al publicar MQTT");
+        }
+    }
+
+}
+----- sensor.cpp -----
+#include "sensors/dfrobot_sen0193/sensor.h"
+#include "sensors/dfrobot_sen0193/config_store.h"
+
+#include <Arduino.h>
+
+namespace dfrobot_sen0193 {
+
+    void Sensor::init() {
+
+        Config cfg = storage::load_dfrobot_sen0193_config();
+
+        if (!driver.apply_config(cfg)) {
+            Serial.println("[SEN0193] no se pudo aplicar config persistida");
+        }
+
+        if (!driver.begin()) {
+            Serial.println("[SEN0193] init failed");
+        } else {
+            Serial.println("[SEN0193] ready");
+        }
+    }
+
+    SoilMoistureData Sensor::read() {
+        return driver.read();
+    }
+
+    bool Sensor::apply_config(const Config& cfg) {
+        return driver.apply_config(cfg);
+    }
+
+    Config Sensor::get_config() const {
+        return driver.get_config();
+    }
+
+    DFRobotSEN0193Driver& Sensor::get_driver() {
+        return driver;
+    }
+
+}

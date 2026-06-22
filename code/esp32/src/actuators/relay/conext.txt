@@ -1,0 +1,449 @@
+----- actuator.cpp -----
+#include "actuators/relay/actuator.h"
+#include "actuators/relay/config_store.h"
+
+#include <Arduino.h>
+
+namespace relay {
+
+    void Sensor::init() {
+        config = storage::load_relay_config();
+
+        if (!driver.begin(config)) {
+            Serial.println("[RELAY] init failed");
+            return;
+        }
+
+        Serial.println("[RELAY] ready");
+    }
+
+    RelayConfig Sensor::get_config() const {
+        return driver.get_config();
+    }
+
+    bool Sensor::apply_config(const RelayConfig& cfg) {
+        if (!validate_config(cfg)) {
+            Serial.println("[RELAY] config inválida");
+            return false;
+        }
+
+        if (!driver.apply_config(cfg)) {
+            Serial.println("[RELAY] driver reject config");
+            return false;
+        }
+
+        config = cfg;
+        storage::save_relay_config(cfg);
+
+        return true;
+    }
+
+    void Sensor::set_channel(uint8_t channel, RelayState state) {
+        driver.set_state(channel, state);
+    }
+
+    void Sensor::set_all(RelayState state) {
+        driver.set_all(state);
+    }
+
+    RelayState Sensor::get_channel(uint8_t channel) const {
+        return driver.get_state(channel);
+    }
+
+    RelayDriver& Sensor::get_driver() {
+        return driver;
+    }
+
+}
+----- command_handler.cpp -----
+#include "actuators/relay/command_handler.h"
+
+#include "actuators/relay/actuator.h"
+#include "actuators/relay/publisher.h"
+#include "actuators/relay/config.h"
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <cstring>
+
+namespace relay {
+
+    static Sensor relay_sensor;
+    static bool relay_initialized = false;
+
+    static void ensure_initialized() {
+        if (!relay_initialized) {
+            relay_sensor.init();
+            relay_initialized = true;
+        }
+    }
+
+    void handle_read_command(const char* payload) {
+        (void)payload;
+        ensure_initialized();
+        Publisher::publish_all_state(relay_sensor);
+    }
+
+    void handle_set_command(const char* payload) {
+        ensure_initialized();
+
+        StaticJsonDocument<128> doc;
+        DeserializationError err = deserializeJson(doc, payload);
+
+        if (err) {
+            Serial.println("[RELAY] JSON inválido");
+            return;
+        }
+
+        int channel = doc["channel"] | -1;
+        if (channel < 1 || channel > 4) {
+            Serial.println("[RELAY] canal inválido");
+            return;
+        }
+
+        const char* state_str = doc["state"] | "";
+        RelayState state;
+
+        if (strcmp(state_str, "ON") == 0) {
+            state = RelayState::ON;
+        } else if (strcmp(state_str, "OFF") == 0) {
+            state = RelayState::OFF;
+        } else {
+            Serial.println("[RELAY] estado inválido");
+            return;
+        }
+
+        relay_sensor.set_channel(static_cast<uint8_t>(channel), state);
+        Publisher::publish_state(static_cast<uint8_t>(channel), state);
+    }
+
+    void handle_config_command(const char* payload) {
+        ensure_initialized();
+
+        StaticJsonDocument<256> doc;
+        DeserializationError err = deserializeJson(doc, payload);
+
+        if (err) {
+            Serial.println("[RELAY] config JSON inválido");
+            return;
+        }
+
+        RelayConfig cfg = relay_sensor.get_config();
+
+        if (doc.containsKey("pin_in1")) cfg.pin_in1 = doc["pin_in1"];
+        if (doc.containsKey("pin_in2")) cfg.pin_in2 = doc["pin_in2"];
+        if (doc.containsKey("pin_in3")) cfg.pin_in3 = doc["pin_in3"];
+        if (doc.containsKey("pin_in4")) cfg.pin_in4 = doc["pin_in4"];
+        if (doc.containsKey("inverted")) cfg.inverted = doc["inverted"];
+        if (doc.containsKey("simulation")) cfg.simulation = doc["simulation"];
+
+        if (!validate_config(cfg)) {
+            Serial.println("[RELAY] config inválida");
+            return;
+        }
+
+        if (!relay_sensor.apply_config(cfg)) {
+            Serial.println("[RELAY] no se pudo aplicar config");
+            return;
+        }
+
+        Serial.println("[RELAY] config aplicada");
+    }
+
+}
+----- config.cpp -----
+#include "actuators/relay/config.h"
+
+#include <Arduino.h>
+
+namespace relay {
+
+    RelayConfig get_default_config() {
+        RelayConfig cfg;
+
+        cfg.pin_in1 = 27;
+        cfg.pin_in2 = 26;
+        cfg.pin_in3 = 25;
+        cfg.pin_in4 = 33;
+
+        cfg.inverted = false;
+        cfg.simulation = false;
+        cfg.interval_ms = 0;
+
+        return cfg;
+    }
+
+    static bool pins_are_unique(const RelayConfig& cfg) {
+        return cfg.pin_in1 != cfg.pin_in2 &&
+               cfg.pin_in1 != cfg.pin_in3 &&
+               cfg.pin_in1 != cfg.pin_in4 &&
+               cfg.pin_in2 != cfg.pin_in3 &&
+               cfg.pin_in2 != cfg.pin_in4 &&
+               cfg.pin_in3 != cfg.pin_in4;
+    }
+
+    bool validate_config(const RelayConfig& cfg) {
+        if (cfg.pin_in1 > 39 || cfg.pin_in2 > 39 ||
+            cfg.pin_in3 > 39 || cfg.pin_in4 > 39) {
+            return false;
+        }
+
+        if (cfg.pin_in1 >= 34 || cfg.pin_in2 >= 34 ||
+            cfg.pin_in3 >= 34 || cfg.pin_in4 >= 34) {
+            return false;
+        }
+
+        if (!pins_are_unique(cfg)) {
+            return false;
+        }
+
+        return true;
+    }
+
+}
+----- config_store.cpp -----
+#include "actuators/relay/config_store.h"
+
+#include <Preferences.h>
+#include <Arduino.h>
+
+namespace storage {
+
+    static Preferences prefs;
+
+    bool save_relay_config(const relay::RelayConfig& cfg) {
+
+        if (!prefs.begin("relay", false)) {
+            Serial.println("[RELAY] no se pudo abrir NVS (write)");
+            return false;
+        }
+
+        prefs.putUChar("pin1", cfg.pin_in1);
+        prefs.putUChar("pin2", cfg.pin_in2);
+        prefs.putUChar("pin3", cfg.pin_in3);
+        prefs.putUChar("pin4", cfg.pin_in4);
+
+        prefs.putBool("inv", cfg.inverted);
+        prefs.putBool("sim", cfg.simulation);
+
+        prefs.putULong("int", cfg.interval_ms);
+
+        prefs.end();
+
+        return true;
+    }
+
+    relay::RelayConfig load_relay_config() {
+
+        relay::RelayConfig cfg = relay::get_default_config();
+
+        if (!prefs.begin("relay", true)) {
+            Serial.println("[RELAY] NVS no disponible, usando defaults");
+            return cfg;
+        }
+
+        cfg.pin_in1 = prefs.getUChar("pin1", cfg.pin_in1);
+        cfg.pin_in2 = prefs.getUChar("pin2", cfg.pin_in2);
+        cfg.pin_in3 = prefs.getUChar("pin3", cfg.pin_in3);
+        cfg.pin_in4 = prefs.getUChar("pin4", cfg.pin_in4);
+
+        cfg.inverted   = prefs.getBool("inv", cfg.inverted);
+        cfg.simulation = prefs.getBool("sim", cfg.simulation);
+
+        cfg.interval_ms = prefs.getULong("int", cfg.interval_ms);
+
+        prefs.end();
+
+        // validación obligatoria
+        if (!relay::validate_config(cfg)) {
+            Serial.println("[RELAY] config inválida en NVS, usando defaults");
+
+            cfg = relay::get_default_config();
+
+            save_relay_config(cfg);
+        }
+
+        return cfg;
+    }
+
+}
+----- driver.cpp -----
+#include "actuators/relay/driver.h"
+
+#include <Arduino.h>
+
+namespace relay {
+
+    RelayDriver::RelayDriver()
+        : ready(false) {
+
+        pins[0] = 0;
+        pins[1] = 0;
+        pins[2] = 0;
+        pins[3] = 0;
+
+        states[0] = RelayState::OFF;
+        states[1] = RelayState::OFF;
+        states[2] = RelayState::OFF;
+        states[3] = RelayState::OFF;
+    }
+
+    void RelayDriver::write_pin_with_config(const RelayConfig& cfg, uint8_t pin, bool state) {
+        if (cfg.simulation) {
+            Serial.print("[RELAY SIM] pin ");
+            Serial.print(pin);
+            Serial.print(" -> ");
+            Serial.println(state ? "ON" : "OFF");
+            return;
+        }
+
+        if (cfg.inverted) {
+            state = !state;
+        }
+
+        digitalWrite(pin, state ? HIGH : LOW);
+    }
+
+    void RelayDriver::write_pin(uint8_t pin, bool state) {
+        write_pin_with_config(config, pin, state);
+    }
+
+    bool RelayDriver::begin(const RelayConfig& cfg) {
+        if (!apply_config(cfg)) {
+            return false;
+        }
+
+        ready = true;
+
+        for (int i = 0; i < 4; i++) {
+            pinMode(pins[i], OUTPUT);
+            states[i] = RelayState::OFF;
+            write_pin(pins[i], false);
+        }
+
+        Serial.println("[RELAY] initialized");
+        return true;
+    }
+
+    bool RelayDriver::apply_config(const RelayConfig& cfg) {
+        if (!validate_config(cfg)) {
+            return false;
+        }
+
+        RelayConfig old_cfg = config;
+        uint8_t old_pins[4] = { pins[0], pins[1], pins[2], pins[3] };
+        bool was_ready = ready;
+
+        if (was_ready) {
+            for (int i = 0; i < 4; i++) {
+                write_pin_with_config(old_cfg, old_pins[i], false);
+            }
+        }
+
+        config = cfg;
+
+        pins[0] = cfg.pin_in1;
+        pins[1] = cfg.pin_in2;
+        pins[2] = cfg.pin_in3;
+        pins[3] = cfg.pin_in4;
+
+        if (was_ready) {
+            for (int i = 0; i < 4; i++) {
+                pinMode(pins[i], OUTPUT);
+                states[i] = RelayState::OFF;
+                write_pin(pins[i], false);
+            }
+        }
+
+        return true;
+    }
+
+    void RelayDriver::set_state(uint8_t channel, RelayState state) {
+        if (channel < 1 || channel > 4) return;
+
+        states[channel - 1] = state;
+
+        if (!ready) return;
+
+        write_pin(pins[channel - 1], state == RelayState::ON);
+    }
+
+    void RelayDriver::set_all(RelayState state) {
+        for (int i = 0; i < 4; i++) {
+            states[i] = state;
+        }
+
+        if (!ready) return;
+
+        bool value = (state == RelayState::ON);
+
+        for (int i = 0; i < 4; i++) {
+            write_pin(pins[i], value);
+        }
+    }
+
+    RelayState RelayDriver::get_state(uint8_t channel) const {
+        if (channel < 1 || channel > 4) return RelayState::OFF;
+        return states[channel - 1];
+    }
+
+    RelayConfig RelayDriver::get_config() const {
+        return config;
+    }
+
+}
+----- publish.cpp -----
+#include "publisher.h"
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+
+#include "mqtt/client.h"
+
+namespace relay {
+
+    static const char* base_topic = "growbox/relay";
+
+    static const char* state_to_str(RelayState state) {
+        return (state == RelayState::ON) ? "ON" : "OFF";
+    }
+
+    void Publisher::publish_state(uint8_t channel, RelayState state) {
+        if (channel < 1 || channel > 4) {
+            Serial.println("[RELAY] canal inválido");
+            return;
+        }
+
+        StaticJsonDocument<64> doc;
+        doc["channel"] = channel;
+        doc["state"] = state_to_str(state);
+
+        char buffer[64];
+        size_t len = serializeJson(doc, buffer, sizeof(buffer));
+
+        if (len == 0 || len >= sizeof(buffer)) {
+            Serial.println("[RELAY] error serializando JSON");
+            return;
+        }
+
+        char topic[64];
+        snprintf(topic, sizeof(topic), "%s/%d/state", base_topic, channel);
+
+        Serial.print("[RELAY] publish ");
+        Serial.print(topic);
+        Serial.print(" -> ");
+        Serial.println(buffer);
+
+        if (!publish_message(topic, buffer)) {
+            Serial.println("[RELAY] error MQTT publish");
+        }
+    }
+
+    void Publisher::publish_all_state(const Sensor& relay_sensor) {
+        for (uint8_t i = 1; i <= 4; i++) {
+            RelayState state = relay_sensor.get_channel(i);
+            publish_state(i, state);
+        }
+    }
+
+}
