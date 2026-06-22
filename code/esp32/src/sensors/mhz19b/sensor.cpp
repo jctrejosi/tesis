@@ -42,7 +42,10 @@ namespace mhz19b {
     void Sensor::set_simulation(bool enabled) {
         Config cfg = driver.get_config();
         cfg.simulation = enabled;
-        driver.apply_config(cfg);
+
+        if (!driver.apply_config(cfg)) {
+            Serial.println("[MHZ19B] no se pudo aplicar simulation");
+        }
     }
 
     MHZ19BDriver& Sensor::get_driver() {
