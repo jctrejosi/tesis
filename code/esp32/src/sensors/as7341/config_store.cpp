@@ -7,111 +7,43 @@ namespace storage {
 
     static Preferences prefs;
 
-    bool save_as7341_config(
-        const as7341::Config& cfg
-    ) {
+    bool save_as7341_config(const as7341::Config& cfg) {
+        if (!prefs.begin("as7341", false)) {
+            return false;
+        }
 
-        prefs.begin("as7341", false);
-
-        prefs.putULong(
-            "interval",
-            cfg.interval_ms
-        );
-
-        prefs.putBool(
-            "sim",
-            cfg.simulation
-        );
-
-        prefs.putUChar(
-            "atime",
-            cfg.atime
-        );
-
-        prefs.putUShort(
-            "astep",
-            cfg.astep
-        );
-
-        prefs.putUShort(
-            "gain",
-            cfg.gain
-        );
-
-        prefs.putBool(
-            "led_en",
-            cfg.led_enabled
-        );
-
-        prefs.putUShort(
-            "led_ma",
-            cfg.led_current_ma
-        );
+        prefs.putULong("interval", cfg.interval_ms);
+        prefs.putBool("sim", cfg.simulation);
+        prefs.putUChar("atime", cfg.atime);
+        prefs.putUShort("astep", cfg.astep);
+        prefs.putUShort("gain", cfg.gain);
+        prefs.putBool("led_en", cfg.led_enabled);
+        prefs.putUShort("led_ma", cfg.led_current_ma);
 
         prefs.end();
-
         return true;
     }
 
     as7341::Config load_as7341_config() {
+        as7341::Config cfg = as7341::get_default_config();
 
-        prefs.begin("as7341", true);
+        if (!prefs.begin("as7341", true)) {
+            return cfg;
+        }
 
-        as7341::Config cfg;
-
-        cfg.interval_ms =
-            prefs.getULong(
-                "interval",
-                10000
-            );
-
-        cfg.simulation =
-            prefs.getBool(
-                "sim",
-                false
-            );
-
-        cfg.atime =
-            prefs.getUChar(
-                "atime",
-                29
-            );
-
-        cfg.astep =
-            prefs.getUShort(
-                "astep",
-                599
-            );
-
-        cfg.gain =
-            prefs.getUShort(
-                "gain",
-                128
-            );
-
-        cfg.led_enabled =
-            prefs.getBool(
-                "led_en",
-                false
-            );
-
-        cfg.led_current_ma =
-            prefs.getUShort(
-                "led_ma",
-                10
-            );
+        cfg.interval_ms = prefs.getULong("interval", cfg.interval_ms);
+        cfg.simulation = prefs.getBool("sim", cfg.simulation);
+        cfg.atime = prefs.getUChar("atime", cfg.atime);
+        cfg.astep = prefs.getUShort("astep", cfg.astep);
+        cfg.gain = prefs.getUShort("gain", cfg.gain);
+        cfg.led_enabled = prefs.getBool("led_en", cfg.led_enabled);
+        cfg.led_current_ma = prefs.getUShort("led_ma", cfg.led_current_ma);
 
         prefs.end();
 
         if (!as7341::validate_config(cfg)) {
-
-            Serial.println(
-                "[AS7341] config inválida en NVS, usando defaults"
-            );
-
-            cfg =
-                as7341::get_default_config();
-
+            Serial.println("[AS7341] config inválida en NVS, usando defaults");
+            cfg = as7341::get_default_config();
             save_as7341_config(cfg);
         }
 

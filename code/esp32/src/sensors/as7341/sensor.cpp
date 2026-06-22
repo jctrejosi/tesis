@@ -1,5 +1,4 @@
 #include "sensors/as7341/sensor.h"
-
 #include "sensors/as7341/config_store.h"
 #include <Arduino.h>
 
@@ -11,13 +10,14 @@ namespace as7341 {
     void Sensor::init() {
         config = storage::load_as7341_config();
 
-        driver.set_simulation_mode(config.simulation);
-
         if (!driver.apply_config(config)) {
             Serial.println("[AS7341] config inválida");
             config = get_default_config();
-            driver.set_simulation_mode(config.simulation);
-            driver.apply_config(config);
+
+            if (!driver.apply_config(config)) {
+                Serial.println("[AS7341] no se pudo aplicar config por defecto");
+            }
+
             storage::save_as7341_config(config);
         }
 
@@ -32,13 +32,18 @@ namespace as7341 {
         return driver.read();
     }
 
-    bool Sensor::set_config(const Config& cfg) {
+    bool Sensor::apply_config(const Config& cfg) {
         if (!driver.apply_config(cfg)) {
             return false;
         }
 
         config = cfg;
-        storage::save_as7341_config(cfg);
+
+        if (!storage::save_as7341_config(cfg)) {
+            Serial.println("[AS7341] no se pudo guardar config en NVS");
+            return false;
+        }
+
         return true;
     }
 
@@ -47,11 +52,15 @@ namespace as7341 {
     }
 
     void Sensor::set_simulation(bool enabled) {
-        driver.set_simulation_mode(enabled);
         config.simulation = enabled;
+        driver.set_simulation_mode(enabled);
     }
 
     AS7341Driver& Sensor::get_driver() {
+        return driver;
+    }
+
+    const AS7341Driver& Sensor::get_driver() const {
         return driver;
     }
 

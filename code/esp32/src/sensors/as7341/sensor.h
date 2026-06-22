@@ -1,28 +1,29 @@
 #pragma once
 
+#include "sensors/as7341/config.h"
 #include "sensors/as7341/driver.h"
 
 namespace as7341 {
 
-    class Sensor {
-    private:
-        AS7341Driver driver;
-        Config config;
+class Sensor {
+public:
+    Sensor();
 
-    public:
-        Sensor();
+    void init();
 
-        void init();
+    AS7341Data read();
 
-        AS7341Data read();
+    bool apply_config(const Config& cfg);
+    Config get_config() const;
 
-        bool set_config(const Config& cfg);
+    void set_simulation(bool enabled);
 
-        Config get_config() const;
+    AS7341Driver& get_driver();
+    const AS7341Driver& get_driver() const;
 
-        void set_simulation(bool enabled);
-
-        AS7341Driver& get_driver();
-    };
+private:
+    AS7341Driver driver;
+    Config config;
+};
 
 }
