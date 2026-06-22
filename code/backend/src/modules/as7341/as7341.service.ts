@@ -25,6 +25,11 @@ export class As7341Service implements OnModuleInit, OnModuleDestroy {
     await this.saveTelemetry(raw);
   };
 
+  // wrapper that ensures a void return for event listeners
+  private readonly telemetryHandler = (raw: string) => {
+    void this.onTelemetry(raw);
+  };
+
   constructor(
     @InjectRepository(As7341ReadingEntity)
     private readonly readingRepo: Repository<As7341ReadingEntity>,
@@ -36,12 +41,12 @@ export class As7341Service implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
-    mqttEvents.on('as7341.data', this.onTelemetry);
+    mqttEvents.on('as7341.data', this.telemetryHandler);
     await this.ensureDefaultConfig();
   }
 
   onModuleDestroy() {
-    mqttEvents.off('as7341.data', this.onTelemetry);
+    mqttEvents.off('as7341.data', this.telemetryHandler);
   }
 
   async requestRead() {

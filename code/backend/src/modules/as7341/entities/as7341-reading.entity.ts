@@ -8,40 +8,40 @@ import {
 @Entity('as7341_readings')
 export class As7341ReadingEntity {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @CreateDateColumn({ name: 'received_at' })
-  received_at: Date;
+  received_at!: Date;
 
   @Column({ type: 'int', default: 0 })
-  f1_415nm: number;
+  f1_415nm!: number;
 
   @Column({ type: 'int', default: 0 })
-  f2_445nm: number;
+  f2_445nm!: number;
 
   @Column({ type: 'int', default: 0 })
-  f3_480nm: number;
+  f3_480nm!: number;
 
   @Column({ type: 'int', default: 0 })
-  f4_515nm: number;
+  f4_515nm!: number;
 
   @Column({ type: 'int', default: 0 })
-  f5_555nm: number;
+  f5_555nm!: number;
 
   @Column({ type: 'int', default: 0 })
-  f6_590nm: number;
+  f6_590nm!: number;
 
   @Column({ type: 'int', default: 0 })
-  f7_630nm: number;
+  f7_630nm!: number;
 
   @Column({ type: 'int', default: 0 })
-  f8_680nm: number;
+  f8_680nm!: number;
 
   @Column({ type: 'int', default: 0 })
-  clear: number;
+  clear!: number;
 
   @Column({ type: 'int', default: 0 })
-  nir: number;
+  nir!: number;
 
   @Column({ type: 'jsonb', name: 'raw_payload', nullable: true })
   raw_payload?: Record<string, unknown>;

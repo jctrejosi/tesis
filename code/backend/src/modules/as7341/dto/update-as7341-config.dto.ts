@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { IsBoolean, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class UpdateAs7341ConfigDto {
