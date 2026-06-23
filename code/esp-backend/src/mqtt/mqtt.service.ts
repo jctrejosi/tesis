@@ -64,6 +64,37 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  publish(topic: string, payload: string): boolean {
+    if (!this.client || !this.client.connected) {
+      this.logger.warn('Cliente MQTT no conectado');
+      return false;
+    }
+    return this.client.publish(topic, payload) !== undefined;
+  }
+
+  requestSensorRead(sensorAlias: string): void {
+    const topic = `growbox/${sensorAlias}/read`;
+    this.publish(topic, '{}');
+    this.logger.log(`Comando READ enviado a ${topic}`);
+  }
+
+  sendSensorConfig(sensorAlias: string, config: any): void {
+    const topic = `growbox/${sensorAlias}/config`;
+    const payload = JSON.stringify(config);
+    this.publish(topic, payload);
+    this.logger.log(`Configuración enviada a ${topic}`);
+  }
+
+  sendActuatorCommand(
+    actuatorType: string,
+    command: string,
+    payload: any,
+  ): void {
+    const topic = `growbox/${actuatorType}/${command}`;
+    this.publish(topic, JSON.stringify(payload));
+    this.logger.log(`Comando enviado a ${topic}`);
+  }
+
   onModuleDestroy() {
     if (this.client) {
       this.client.end(false, {}, () => {

@@ -18,6 +18,7 @@ async function bootstrap() {
     .addTag('devices', 'Gestión de dispositivos ESP32')
     .addTag('sensors', 'Gestión de sensores')
     .addTag('actuators', 'Control de actuadores')
+    .addTag('config', 'Configuración de sensores')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

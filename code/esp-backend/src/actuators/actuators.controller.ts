@@ -11,19 +11,11 @@ type ActuatorCommandPayload = {
   [key: string]: unknown;
 };
 
-type MqttActuatorService = {
-  sendActuatorCommand(
-    actuatorType: string,
-    command: string,
-    payload: ActuatorCommandPayload,
-  ): Promise<void>;
-};
-
 @ApiTags('actuators')
 @Controller('actuators')
 export class ActuatorsController {
   constructor(
-    @Inject(MqttService) private readonly mqttService: MqttActuatorService,
+    private readonly mqttService: MqttService,
     @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
   ) {}
 
@@ -73,7 +65,7 @@ export class ActuatorsController {
     }
     const actuatorType = actuator.rows[0].type;
 
-    await this.mqttService.sendActuatorCommand(
+    this.mqttService.sendActuatorCommand(
       actuatorType,
       body.command,
       body.payload ?? {},

@@ -3,6 +3,7 @@ import { DRIZZLE } from '../db/database.module';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../db/schema';
 import { sql } from 'drizzle-orm';
+import { v4 as uuidv4 } from 'uuid';
 
 @Controller('health')
 export class HealthController implements OnModuleInit {
@@ -12,10 +13,11 @@ export class HealthController implements OnModuleInit {
   async onModuleInit() {
     try {
       // Insertar un dato de prueba en telemetry
+      const sampleId = uuidv4();
       await this.db.execute(sql`
-        INSERT INTO telemetry (time, device_id, sensor_id, metric_name, value)
-        VALUES (now(), 1, 1, 'test_metric', 42.0)
-        ON CONFLICT (time, device_id, sensor_id, metric_name) DO NOTHING
+        INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value)
+        VALUES (now(), ${sampleId}::uuid, 1, 1, 'test_metric', 42.0)
+        ON CONFLICT (time, sample_id, device_id, sensor_id, metric_name) DO NOTHING
       `);
       console.log('Inserción de prueba en telemetry exitosa');
     } catch (err) {

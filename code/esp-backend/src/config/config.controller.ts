@@ -18,10 +18,7 @@ import * as schema from '../db/schema';
 @Controller('config')
 export class ConfigController {
   constructor(
-    private readonly mqttService: MqttService & {
-      sendSensorConfig(alias: string, config: any): Promise<void>;
-      requestSensorRead(alias: string): Promise<void>;
-    },
+    private readonly mqttService: MqttService,
     @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
   ) {}
 
@@ -72,7 +69,7 @@ export class ConfigController {
     `);
 
     // Enviar al ESP32 por MQTT
-    await this.mqttService.sendSensorConfig(alias, config);
+    this.mqttService.sendSensorConfig(alias, config);
 
     return {
       status: 'ok',
@@ -84,8 +81,8 @@ export class ConfigController {
   @Post('sensors/:alias/read')
   @ApiOperation({ summary: 'Solicitar lectura inmediata de un sensor' })
   @ApiParam({ name: 'alias', example: 'as7341' })
-  async requestRead(@Param('alias') alias: string) {
-    await this.mqttService.requestSensorRead(alias);
+  requestRead(@Param('alias') alias: string) {
+    this.mqttService.requestSensorRead(alias);
     return { status: 'ok', message: `Comando READ enviado a ${alias}` };
   }
 }

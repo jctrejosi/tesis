@@ -33,7 +33,7 @@ export class TelemetryService {
     const ts = timestamp ? timestamp : new Date().toISOString();
 
     // Generar un sample_id común para todas las métricas de este mensaje
-    const sampleId = (uuidv4 as () => string)();
+    const sampleId = uuidv4();
 
     // (Opcional) payload completo para raw_payload
     const rawPayload = JSON.stringify(message);
@@ -82,5 +82,88 @@ export class TelemetryService {
       LIMIT ${limit}
     `);
     return result.rows;
+  }
+
+  // Obtener último valor de cada métrica de un sensor (ventana 1 hora)
+  async getCurrentValues(sensorAlias: string) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+    return this.db.execute(sql`
+    SELECT DISTINCT ON (metric_name) 
+      metric_name, 
+      value, 
+      time
+    FROM telemetry
+    WHERE sensor_id = ${sensorId}
+      AND time > now() - interval '1 hour'
+    ORDER BY metric_name, time DESC
+  `);
+  }
+
+  // Lecturas de una métrica en rango de tiempo
+  async getByTimeRange(
+    sensorAlias: string,
+    metricName: string,
+    start: string,
+    end: string,
+    limit = 100,
+  ) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+    return this.db.execute(sql`
+    SELECT time, value
+    FROM telemetry
+    WHERE sensor_id = ${sensorId}
+      AND metric_name = ${metricName}
+      AND time BETWEEN ${start}::timestamptz AND ${end}::timestamptz
+    ORDER BY time DESC
+    LIMIT ${limit}
+  `);
+  }
+
+  // Datos agregados por hora o día
+  async getAggregated(
+    sensorAlias: string,
+    metricName: string,
+    bucket: '1 hour' | '1 day',
+    start: string,
+    end: string,
+  ) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+    return this.db.execute(sql`
+    SELECT 
+      time_bucket(${bucket}::interval, time) AS bucket,
+      avg(value) as avg_value,
+      min(value) as min_value,
+      max(value) as max_value,
+      count(*) as samples
+    FROM telemetry
+    WHERE sensor_id = ${sensorId}
+      AND metric_name = ${metricName}
+      AND time BETWEEN ${start}::timestamptz AND ${end}::timestamptz
+    GROUP BY bucket
+    ORDER BY bucket DESC
+  `);
+  }
+
+  // Listar métricas disponibles para un sensor
+  async getAvailableMetrics(sensorAlias: string) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+    return this.db.execute(sql`
+    SELECT DISTINCT metric_name
+    FROM telemetry
+    WHERE sensor_id = ${sensorId}
+    ORDER BY metric_name
+  `);
+  }
+
+  // Helper privado
+  private async getSensorId(alias: string): Promise<number | null> {
+    const result = await this.db.execute(sql`
+    SELECT id FROM sensors WHERE alias = ${alias} LIMIT 1
+  `);
+    return result.rows.length ? (result.rows[0].id as number) : null;
   }
 }
