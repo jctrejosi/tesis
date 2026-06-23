@@ -1,5 +1,6 @@
 #include "sensors/bme680/publisher.h"
 #include "mqtt/client.h"
+#include "device_config.h"   // para get_device_id()
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -7,14 +8,18 @@
 namespace bme680 {
 
     bool Publisher::publish(const BME680Data& data) {
-        StaticJsonDocument<128> json;
+        StaticJsonDocument<256> json;  // aumentamos tamaño para el nuevo formato
 
-        json["temperature"] = data.temperature;
-        json["humidity"] = data.humidity;
-        json["pressure"] = data.pressure;
-        json["gas"] = data.gas_resistance;
+        json["device_id"] = get_device_id();
+        json["timestamp"] = (const char*)nullptr;  // backend usará server time
 
-        char payload[128];
+        JsonObject metrics = json.createNestedObject("metrics");
+        metrics["temperature"] = data.temperature;
+        metrics["humidity"] = data.humidity;
+        metrics["pressure"] = data.pressure;
+        metrics["gas_resistance"] = data.gas_resistance;
+
+        char payload[256];
         serializeJson(json, payload, sizeof(payload));
 
         static constexpr const char* TOPIC = "growbox/bme680/data";

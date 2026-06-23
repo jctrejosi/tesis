@@ -60,21 +60,22 @@ namespace bme680 {
 
         if (simulation_mode) {
             hardware_ready = false;
-            Serial.println("BME680 en modo simulación");
+            Serial.println("BME680 en modo simulación (config)");
             return true;
         }
 
         Wire.begin(BME680_SDA_PIN, BME680_SCL_PIN);
 
         if (!bme.begin(BME680_I2C_ADDRESS)) {
-            Serial.println("Error: no se encontró BME680 en I2C");
+            Serial.println("Error: no se encontró BME680 en I2C, activando simulación");
+            simulation_mode = true;
+            current_config.simulation = true;
             hardware_ready = false;
-            return false;
+            return true;   // seguir adelante con datos simulados
         }
 
         hardware_ready = true;
         apply_hardware_config();
-
         Serial.println("BME680 inicializado correctamente");
         return true;
     }
