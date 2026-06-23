@@ -30,18 +30,13 @@ namespace mhz19b {
 
         delay(100); // tiempo para estabilizar UART
 
-        // prueba básica de comunicación
-        if (!send_read_command()) {
-            Serial.println("[MHZ19B] no responde (send)");
-            hardware_ready = false;
-            return false;
-        }
-
         uint8_t response[9];
-        if (!read_response(response, 9)) {
-            Serial.println("[MHZ19B] no responde (read)");
+        if (!send_read_command() || !read_response(response, 9)) {
+            Serial.println("[MHZ19B] no responde, activando simulación");
+            simulation_mode = true;
+            current_config.simulation = true;
             hardware_ready = false;
-            return false;
+            return true;
         }
 
         hardware_ready = true;

@@ -1,6 +1,5 @@
 #include "sensors/bme680/publisher.h"
 #include "mqtt/client.h"
-#include "device_config.h"   // para get_device_id()
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -10,7 +9,7 @@ namespace bme680 {
     bool Publisher::publish(const BME680Data& data) {
         StaticJsonDocument<256> json;  // aumentamos tamaño para el nuevo formato
 
-        json["device_id"] = get_device_id();
+        json["device_id"] = 1;
         json["timestamp"] = (const char*)nullptr;  // backend usará server time
 
         JsonObject metrics = json.createNestedObject("metrics");

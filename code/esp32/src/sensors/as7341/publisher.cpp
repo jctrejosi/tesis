@@ -7,7 +7,7 @@ namespace as7341 {
     void Publisher::publish(const AS7341Data& data) {
         StaticJsonDocument<384> doc;
         JsonObject metrics = doc.to<JsonObject>();
-        
+
         metrics["f1_415nm"] = data.f1_415nm;
         metrics["f2_445nm"] = data.f2_445nm;
         metrics["f3_480nm"] = data.f3_480nm;
@@ -18,7 +18,7 @@ namespace as7341 {
         metrics["f8_680nm"] = data.f8_680nm;
         metrics["clear"]   = data.clear;
         metrics["nir"]     = data.nir;
-        
+
         publish_telemetry("as7341", metrics);
     }
 }

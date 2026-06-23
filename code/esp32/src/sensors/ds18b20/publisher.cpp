@@ -5,7 +5,6 @@
 #include <math.h>
 
 #include "mqtt/client.h"
-#include "device_config.h"
 
 namespace ds18b20 {
 
@@ -17,7 +16,7 @@ namespace ds18b20 {
 
         StaticJsonDocument<256> doc;
 
-        doc["device_id"] = get_device_id();
+        doc["device_id"] = 1;
         doc["timestamp"] = (const char*)nullptr;
 
         JsonObject metrics = doc.createNestedObject("metrics");
