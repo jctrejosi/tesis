@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: cea-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cea_user
+      POSTGRES_PASSWORD: cea_password
+      POSTGRES_DB: cea_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql   # <-- Aquí montamos el script
+
+volumes:
+  timescale-data:
