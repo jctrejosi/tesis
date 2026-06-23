@@ -12,7 +12,14 @@ services:
       - "5432:5432"
     volumes:
       - timescale-data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql   # <-- Aquí montamos el script
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  mosquitto:
+    image: eclipse-mosquitto
+    container_name: cea-mqtt
+    ports:
+      - "1883:1883"
+      - "9001:9001"
 
 volumes:
   timescale-data:

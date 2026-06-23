@@ -1,7 +1,7 @@
 #pragma once
 
-#define WIFI_SSID "Araña"
-#define WIFI_PASSWORD ""
+#define WIFI_SSID "esp_p1"
+#define WIFI_PASSWORD "123456789"
 
-#define MQTT_BROKER "10.144.104.203"
+#define MQTT_BROKER "10.116.37.239"
 #define MQTT_PORT 1883

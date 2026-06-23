@@ -16,22 +16,53 @@ static const unsigned long retry_interval = 5000;
 bool wifi_connected = false;
 
 void setup_wifi() {
+    // Configuración más robusta
+    WiFi.mode(WIFI_STA);
+    WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE); // Para evitar IP estática
+    
+    // Intenta conectar primero con el SSID exacto
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    
+    Serial.print("Conectando a WiFi... ");
+    Serial.println(WIFI_SSID);
 
     unsigned long start = millis();
-
-    while (WiFi.status() != WL_CONNECTED) {
+    int attempts = 0;
+    
+    // Aumenta timeout a 20 segundos
+    while (WiFi.status() != WL_CONNECTED && attempts < 40) {
         delay(500);
+        attempts++;
+        Serial.print(".");
+        
+        if (attempts % 10 == 0) {
+            Serial.println();
+            Serial.print("Intento ");
+            Serial.print(attempts/2);
+            Serial.println(" segundos...");
 
-        if (millis() - start > 10000) {
-            Serial.println("WiFi timeout");
-            wifi_connected = false;
-            return;
+            // Reintenta si pasó mucho tiempo
+            if (attempts > 30) {
+                WiFi.disconnect();
+                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+            }
         }
     }
 
-    wifi_connected = true;
-    Serial.println("WiFi connected");
+    if (WiFi.status() == WL_CONNECTED) {
+        wifi_connected = true;
+        Serial.println();
+        Serial.println("WiFi connected");
+        Serial.print("IP: ");
+        Serial.println(WiFi.localIP());
+    } else {
+        wifi_connected = false;
+        Serial.println();
+        Serial.println("WiFi FAILED - Timeout");
+        Serial.print("Estado: ");
+        Serial.println(WiFi.status());
+        // WL_NO_SHIELD = 255, WL_IDLE_STATUS = 0, WL_NO_SSID_AVAIL = 1, WL_SCAN_COMPLETED = 2, WL_CONNECTED = 3, WL_CONNECT_FAILED = 4, WL_CONNECTION_LOST = 5, WL_DISCONNECTED = 6
+    }
 }
 
 void setup_mqtt() {
