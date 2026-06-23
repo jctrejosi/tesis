@@ -5,7 +5,6 @@
 #include "sensors/ds18b20/config.h"
 #include "sensors/mhz19b/config.h"
 #include "sensors/soil_ec_rs485/config.h"
-#include "sensors/dfrobot_sen0193/config.h"
 
 namespace sensors {
 
@@ -31,6 +30,5 @@ namespace sensors {
     bool apply_ds18b20_air_config(const ds18b20::Config& cfg);
     bool apply_mhz19b_config(const mhz19b::Config& cfg);
     bool apply_soil_ec_rs485_config(const soil_ec_rs485::Config& cfg);
-    bool apply_dfrobot_sen0193_config(const dfrobot_sen0193::Config& cfg);
 
 }

@@ -47,7 +47,7 @@ namespace ds18b20 {
     }
 
     void handle_read_command() {
-        sensors::publish_ds18b20_now();
+        sensors::publish_ds18b20_air_now();
     }
 
     void handle_config_command(const char* payload) {
@@ -85,7 +85,7 @@ namespace ds18b20 {
             return;
         }
 
-        if (!sensors::apply_ds18b20_config(cfg)) {
+        if (!sensors::apply_ds18b20_air_config(cfg)) {
             Serial.println("[DS18B20] no se pudo aplicar config");
             return;
         }

@@ -101,13 +101,11 @@ namespace as7341 {
 
         if (!sensor.begin()) {
 
-            Serial.println(
-                "[AS7341] sensor no detectado"
-            );
-
+            Serial.println("[AS7341] sensor no detectado, activando simulación");
+            simulation_mode = true;
+            current_config.simulation = true;
             hardware_ready = false;
-
-            return false;
+            return true;
         }
 
         hardware_ready = true;

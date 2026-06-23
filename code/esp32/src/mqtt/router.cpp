@@ -5,7 +5,6 @@
 #include "sensors/ds18b20/command_handler.h"
 #include "sensors/mhz19b/command_handler.h"
 #include "sensors/soil_ec_rs485/command_handler.h"
-#include "sensors/dfrobot_sen0193/command_handler.h"
 
 #include "actuators/relay/command_handler.h"
 
@@ -124,23 +123,6 @@ void route_message(
 
         else if (strcmp(command, "config") == 0) {
             soil_ec_rs485::handle_config_command(payload);
-        }
-
-        return;
-    }
-
-    // =====================
-    // SEN0193
-    // =====================
-
-    if (strcmp(module, "dfrobot_sen0193") == 0) {
-
-        if (strcmp(command, "read") == 0) {
-            dfrobot_sen0193::handle_read_command();
-        }
-
-        else if (strcmp(command, "config") == 0) {
-            dfrobot_sen0193::handle_config_command(payload);
         }
 
         return;

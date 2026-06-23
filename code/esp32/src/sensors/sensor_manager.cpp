@@ -7,10 +7,6 @@
 #include "sensors/as7341/publisher.h"
 #include "sensors/as7341/config_store.h"
 
-#include "sensors/dfrobot_sen0193/sensor.h"
-#include "sensors/dfrobot_sen0193/publisher.h"
-#include "sensors/dfrobot_sen0193/config_store.h"
-
 #include "sensors/ds18b20/sensor.h"
 #include "sensors/ds18b20/publisher.h"
 #include "sensors/ds18b20/config_store.h"
@@ -23,10 +19,6 @@
 #include "sensors/soil_ec_rs485/publisher.h"
 #include "sensors/soil_ec_rs485/config_store.h"
 
-#include "sensors/dfrobot_sen0193/sensor.h"
-#include "sensors/dfrobot_sen0193/publisher.h"
-#include "sensors/dfrobot_sen0193/config_store.h"
-
 #include <Arduino.h>
 
 namespace sensors {
@@ -36,7 +28,6 @@ namespace sensors {
     static as7341::Sensor as7341;
     static mhz19b::Sensor mhz19b;
     static soil_ec_rs485::Sensor soil_ec;
-    static dfrobot_sen0193::Sensor dfrobot;
     static ds18b20::Sensor ds_soil;
     static ds18b20::Sensor ds_air;
 
