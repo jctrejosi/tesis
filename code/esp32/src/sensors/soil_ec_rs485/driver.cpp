@@ -54,12 +54,13 @@ namespace soil_ec_rs485 {
         }
 
         release_serial();
-
         serial = new HardwareSerial(current_config.uart_port);
         if (serial == nullptr) {
-            Serial.println("[SOIL_EC_RS485] no se pudo crear HardwareSerial");
+            Serial.println("[SOIL_EC_RS485] no se pudo crear HardwareSerial, activando simulación");
+            simulation_mode = true;
+            current_config.simulation = true;
             hardware_ready = false;
-            return false;
+            return true;
         }
 
         if (current_config.de_pin >= 0) {

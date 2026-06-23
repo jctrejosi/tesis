@@ -1,9 +1,7 @@
 #include "sensors/soil_ec_rs485/publisher.h"
-
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <math.h>
-
 #include "mqtt/client.h"
 
 namespace soil_ec_rs485 {
@@ -14,21 +12,20 @@ namespace soil_ec_rs485 {
             return;
         }
 
-        StaticJsonDocument<192> doc;
+        StaticJsonDocument<256> doc;
+        doc["device_id"] = 1;
+        doc["timestamp"] = (const char*)nullptr;
 
-        doc["ec_mS_cm"] = data.ec_raw;
-
+        JsonObject metrics = doc.createNestedObject("metrics");
+        metrics["ec"] = data.ec_raw;
         if (!isnan(data.temperature)) {
-            doc["temperature_c"] = data.temperature;
+            metrics["temperature"] = data.temperature;
         } else {
-            doc["temperature_c"] = nullptr;
+            metrics["temperature"] = nullptr;
         }
 
-        doc["unit"] = "mS/cm";
-
-        char buffer[192];
+        char buffer[256];
         size_t len = serializeJson(doc, buffer, sizeof(buffer));
-
         if (len == 0 || len >= sizeof(buffer)) {
             Serial.println("[SOIL_EC_RS485] error serializando JSON");
             return;
@@ -37,7 +34,8 @@ namespace soil_ec_rs485 {
         Serial.print("[SOIL_EC_RS485] publish: ");
         Serial.println(buffer);
 
-        if (!publish_message("growbox/soil_ec_rs485/data", buffer)) {
+        // Topic alineado con el alias en BD: soil_ec
+        if (!publish_message("growbox/soil_ec/data", buffer)) {
             Serial.println("[SOIL_EC_RS485] error MQTT");
         }
     }
