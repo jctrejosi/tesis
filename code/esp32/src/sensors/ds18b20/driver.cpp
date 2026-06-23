@@ -25,13 +25,14 @@ namespace ds18b20 {
         }
 
         sensors.begin();
-
         int device_count = sensors.getDeviceCount();
 
         if (device_count == 0) {
-            Serial.println("[DS18B20] no detectado");
+            Serial.println("[DS18B20] no detectado, activando simulación");
+            simulation_mode = true;
+            current_config.simulation = true;
             hardware_ready = false;
-            return false;
+            return true;
         }
 
         // aplicar resolución por defecto o config

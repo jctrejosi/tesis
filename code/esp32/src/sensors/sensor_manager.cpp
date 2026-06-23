@@ -81,16 +81,10 @@ namespace sensors {
             as7341::Publisher::publish(as7341.read());
         }
 
-        // ===== DS18B20 SOIL =====
-        if (now - last_ds_soil >= ds_soil.get_config().interval_ms) {
-            last_ds_soil = now;
-            ds18b20::Publisher::publish("growbox/ds18b20/soil/data", ds_soil.read());
-        }
-
         // ===== DS18B20 AIR =====
         if (now - last_ds_air >= ds_air.get_config().interval_ms) {
             last_ds_air = now;
-            ds18b20::Publisher::publish("growbox/ds18b20/air/data", ds_air.read());
+            ds18b20::Publisher::publish("growbox/ds18b20_air/data", ds_air.read());
         }
 
         // ===== MH-Z19B =====

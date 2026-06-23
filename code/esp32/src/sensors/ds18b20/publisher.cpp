@@ -5,22 +5,25 @@
 #include <math.h>
 
 #include "mqtt/client.h"
+#include "device_config.h"
 
 namespace ds18b20 {
 
     void Publisher::publish(const char* topic, const DS18B20Data& data) {
-        // validar dato
         if (isnan(data.temperature)) {
             Serial.println("[DS18B20] dato inválido");
             return;
         }
 
-        StaticJsonDocument<128> doc;
+        StaticJsonDocument<256> doc;
 
-        doc["temperature"] = data.temperature;
-        doc["unit"] = "celsius";
+        doc["device_id"] = get_device_id();
+        doc["timestamp"] = (const char*)nullptr;
 
-        char buffer[128];
+        JsonObject metrics = doc.createNestedObject("metrics");
+        metrics["temperature"] = data.temperature;
+
+        char buffer[256];
         size_t len = serializeJson(doc, buffer, sizeof(buffer));
 
         if (len == 0 || len >= sizeof(buffer)) {
