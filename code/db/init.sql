@@ -1,110 +1,182 @@
--- Habilitar la extensión TimescaleDB
+-- ================================================================
+-- extensiones
+-- ================================================================
+
 CREATE EXTENSION IF NOT EXISTS timescaledb;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ================================================================
--- Tablas de dominio (relacionales) – se manejarán con Drizzle/TypeORM
+-- dominio: usuarios
 -- ================================================================
 
--- Usuarios (para autenticación futura)
 CREATE TABLE IF NOT EXISTS users (
-    id            SERIAL PRIMARY KEY,
-    email         TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    created_at    TIMESTAMPTZ DEFAULT now()
+    id             BIGSERIAL PRIMARY KEY,
+    email          TEXT UNIQUE NOT NULL,
+    password_hash  TEXT NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Dispositivos (cada ESP32)
+-- ================================================================
+-- dominio: dispositivos
+-- ================================================================
+
 CREATE TABLE IF NOT EXISTS devices (
-    id          SERIAL PRIMARY KEY,
-    user_id     INT REFERENCES users(id) ON DELETE CASCADE,
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT REFERENCES users(id) ON DELETE CASCADE,
     name        TEXT NOT NULL,
-    type        TEXT NOT NULL DEFAULT 'esp32',  -- 'esp32', 'raspberry', etc.
+    type        TEXT NOT NULL DEFAULT 'esp32',
     location    TEXT,
-    metadata    JSONB DEFAULT '{}',
-    created_at  TIMESTAMPTZ DEFAULT now()
+    metadata    JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Sensores
+CREATE INDEX IF NOT EXISTS idx_devices_user_id
+    ON devices(user_id);
+
+-- ================================================================
+-- dominio: sensores
+-- ================================================================
+
 CREATE TABLE IF NOT EXISTS sensors (
-    id          SERIAL PRIMARY KEY,
-    device_id   INT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    name        TEXT NOT NULL,                -- 'BME680 interior'
-    model       TEXT NOT NULL,                -- 'BME680', 'AS7341', etc.
-    alias       TEXT,                         -- nombre corto para código: 'bme_main'
-    sensor_type TEXT NOT NULL,                -- 'temperature', 'humidity', 'co2', 'spectral', 'soil_ec', 'soil_moisture'
-    metadata    JSONB DEFAULT '{}',           -- ej: { "i2c_address": "0x77" }
-    created_at  TIMESTAMPTZ DEFAULT now()
+    id           BIGSERIAL PRIMARY KEY,
+    device_id    BIGINT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    model        TEXT NOT NULL,
+    alias        TEXT NOT NULL,
+    sensor_type  TEXT NOT NULL,
+    metadata     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (device_id, alias)
 );
 
--- Configuraciones dinámicas de sensores (calibraciones, intervalos, etc.)
+CREATE INDEX IF NOT EXISTS idx_sensors_device_id
+    ON sensors(device_id);
+
+CREATE INDEX IF NOT EXISTS idx_sensors_model
+    ON sensors(model);
+
+-- ================================================================
+-- dominio: configuraciones de sensores
+-- se guarda como jsonb para no rigidizar el esquema
+-- ================================================================
+
 CREATE TABLE IF NOT EXISTS sensor_configs (
-    id          SERIAL PRIMARY KEY,
-    sensor_id   INT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
-    config_key  TEXT NOT NULL,                -- 'offset_temp', 'sample_interval_ms', 'alarm_threshold'
-    config_value TEXT NOT NULL,
-    updated_at  TIMESTAMPTZ DEFAULT now()
+    id          BIGSERIAL PRIMARY KEY,
+    sensor_id   BIGINT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+    config      JSONB NOT NULL DEFAULT '{}'::jsonb,
+    version     INT NOT NULL DEFAULT 1,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Actuadores (relés, iluminación, ventilación, riego, etc.)
+CREATE INDEX IF NOT EXISTS idx_sensor_configs_sensor_id
+    ON sensor_configs(sensor_id);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_configs_updated_at
+    ON sensor_configs(updated_at DESC);
+
+-- ================================================================
+-- dominio: actuadores
+-- ================================================================
+
 CREATE TABLE IF NOT EXISTS actuators (
-    id          SERIAL PRIMARY KEY,
-    device_id   INT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    id          BIGSERIAL PRIMARY KEY,
+    device_id   BIGINT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
     name        TEXT NOT NULL,
-    type        TEXT NOT NULL,                -- 'relay', 'light', 'fan', 'extractor', 'pump'
-    state       JSONB DEFAULT '{}',           -- estado actual, ej: {"on": true, "speed": 80}
-    metadata    JSONB DEFAULT '{}',
-    created_at  TIMESTAMPTZ DEFAULT now()
+    type        TEXT NOT NULL,
+    state       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    metadata    JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (device_id, name)
 );
 
--- Opcional: log de cambios de actuadores (para auditoría)
+CREATE INDEX IF NOT EXISTS idx_actuators_device_id
+    ON actuators(device_id);
+
+-- ================================================================
+-- dominio: eventos de actuadores
+-- ================================================================
+
 CREATE TABLE IF NOT EXISTS actuator_events (
-    id          SERIAL PRIMARY KEY,
-    actuator_id INT NOT NULL REFERENCES actuators(id) ON DELETE CASCADE,
-    old_state   JSONB,
-    new_state   JSONB,
-    reason      TEXT,                          -- 'manual', 'rule_based', 'ai'
-    created_at  TIMESTAMPTZ DEFAULT now()
+    id           BIGSERIAL PRIMARY KEY,
+    actuator_id  BIGINT NOT NULL REFERENCES actuators(id) ON DELETE CASCADE,
+    old_state    JSONB,
+    new_state    JSONB,
+    reason       TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS idx_actuator_events_actuator_id
+    ON actuator_events(actuator_id);
+
+CREATE INDEX IF NOT EXISTS idx_actuator_events_created_at
+    ON actuator_events(created_at DESC);
+
 -- ================================================================
--- Tabla genérica de telemetría (el corazón del sistema)
+-- telemetría: tabla genérica de series temporales
+-- una fila = una métrica puntual de una muestra
 -- ================================================================
-CREATE TABLE telemetry (
-    time        TIMESTAMPTZ NOT NULL,
-    device_id   INT NOT NULL,
-    sensor_id   INT NOT NULL,
-    metric_name TEXT NOT NULL,       -- 'temperature', 'humidity', 'co2', 'f1_415nm', 'soil_moisture', etc.
-    value       DOUBLE PRECISION NOT NULL
+
+CREATE TABLE IF NOT EXISTS telemetry (
+    time         TIMESTAMPTZ NOT NULL,
+    sample_id    UUID NOT NULL DEFAULT gen_random_uuid(),
+    device_id    BIGINT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    sensor_id    BIGINT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+    metric_name  TEXT NOT NULL,
+    value        DOUBLE PRECISION NOT NULL,
+    unit         TEXT,
+    quality      SMALLINT NOT NULL DEFAULT 100,
+    raw_payload  JSONB,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Convertir a hypertable particionada por tiempo
+-- convertir en hypertable
 SELECT create_hypertable('telemetry', 'time', if_not_exists => TRUE);
 
--- Índice único para evitar duplicados en una misma inserción
-CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_unique
-    ON telemetry (time, device_id, sensor_id, metric_name);
+-- un mismo sample_id puede generar varias métricas,
+-- pero no debe repetirse la misma métrica para la misma muestra
+CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_unique_sample_metric
+    ON telemetry (time, sample_id, device_id, sensor_id, metric_name);
 
--- Índice compuesto para las consultas más comunes (lecturas por dispositivo/sensor/métrica)
 CREATE INDEX IF NOT EXISTS idx_telemetry_device_sensor_metric_time
     ON telemetry (device_id, sensor_id, metric_name, time DESC);
 
--- (Opcional) Índice adicional para consultas por métrica solamente
+CREATE INDEX IF NOT EXISTS idx_telemetry_sensor_time
+    ON telemetry (sensor_id, time DESC);
+
 CREATE INDEX IF NOT EXISTS idx_telemetry_metric_time
     ON telemetry (metric_name, time DESC);
 
--- ================================================================
--- Políticas de gestión de datos temporales (recomendadas, pero opcionales al inicio)
--- ================================================================
+CREATE INDEX IF NOT EXISTS idx_telemetry_sample_id
+    ON telemetry (sample_id);
 
--- 1. Compresión: activar después de 7 días de datos
+-- ================================================================
+-- compresión y retención
+-- ================================================================
+-- Recomendado activarlo después de validar el flujo de datos.
+
 -- ALTER TABLE telemetry SET (
 --     timescaledb.compress,
 --     timescaledb.compress_segmentby = 'device_id, sensor_id, metric_name'
 -- );
 -- SELECT add_compression_policy('telemetry', INTERVAL '7 days', if_not_exists => TRUE);
 
--- 2. Retención: borrar datos crudos de más de 2 años (por ejemplo)
 -- SELECT add_retention_policy('telemetry', INTERVAL '2 years', if_not_exists => TRUE);
 
--- 3. Agregados continuos (vistas materializadas) para dashboards
---    (Se crean después de tener claro qué vistas necesitas)
+-- ================================================================
+-- utilidad opcional: actualizar updated_at en sensor_configs
+-- ================================================================
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sensor_configs_updated_at ON sensor_configs;
+
+CREATE TRIGGER trg_sensor_configs_updated_at
+BEFORE UPDATE ON sensor_configs
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
