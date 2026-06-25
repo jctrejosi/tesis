@@ -2,7 +2,6 @@
 
 #include "sensors/bme680/config.h"
 #include "sensors/as7341/config.h"
-#include "sensors/ds18b20/config.h"
 #include "sensors/mhz19b/config.h"
 #include "sensors/soil_ec_rs485/config.h"
 
@@ -17,8 +16,6 @@ namespace sensors {
     // ===== publish inmediato =====
     void publish_bme680_now();
     void publish_as7341_now();
-    void publish_ds18b20_soil_now();
-    void publish_ds18b20_air_now();
     void publish_mhz19b_now();
     void publish_soil_ec_rs485_now();
     void publish_dfrobot_sen0193_now();
@@ -26,8 +23,6 @@ namespace sensors {
     // ===== config API =====
     bool apply_bme680_config(const bme680::Config& cfg);
     bool apply_as7341_config(const as7341::Config& cfg);
-    bool apply_ds18b20_soil_config(const ds18b20::Config& cfg);
-    bool apply_ds18b20_air_config(const ds18b20::Config& cfg);
     bool apply_mhz19b_config(const mhz19b::Config& cfg);
     bool apply_soil_ec_rs485_config(const soil_ec_rs485::Config& cfg);
 

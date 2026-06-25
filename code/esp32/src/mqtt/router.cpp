@@ -2,7 +2,6 @@
 
 #include "sensors/bme680/command_handler.h"
 #include "sensors/as7341/command_handler.h"
-#include "sensors/ds18b20/command_handler.h"
 #include "sensors/mhz19b/command_handler.h"
 #include "sensors/soil_ec_rs485/command_handler.h"
 
@@ -72,23 +71,6 @@ void route_message(
 
         else if (strcmp(command, "config") == 0) {
             as7341::handle_config_command(payload);
-        }
-
-        return;
-    }
-
-    // =====================
-    // DS18B20
-    // =====================
-
-    if (strcmp(module, "ds18b20") == 0) {
-
-        if (strcmp(command, "read") == 0) {
-            ds18b20::handle_read_command();
-        }
-
-        else if (strcmp(command, "config") == 0) {
-            ds18b20::handle_config_command(payload);
         }
 
         return;
