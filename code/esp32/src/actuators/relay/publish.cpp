@@ -51,4 +51,31 @@ namespace relay {
         }
     }
 
+    void Publisher::publish_config(const Sensor& relay_sensor) {
+        RelayConfig cfg = relay_sensor.get_config();
+
+        StaticJsonDocument<256> doc;
+        doc["pin_in1"] = cfg.pin_in1;
+        doc["pin_in2"] = cfg.pin_in2;
+        doc["pin_in3"] = cfg.pin_in3;
+        doc["pin_in4"] = cfg.pin_in4;
+        doc["inverted"] = cfg.inverted;
+        doc["simulation"] = cfg.simulation;
+        doc["interval_ms"] = cfg.interval_ms;
+
+        char buffer[256];
+        size_t len = serializeJson(doc, buffer, sizeof(buffer));
+        if (len == 0 || len >= sizeof(buffer)) {
+            Serial.println("[RELAY] error serializando config JSON");
+            return;
+        }
+
+        static const char* topic = "growbox/relay/config";
+        Serial.print("[RELAY] publish config: ");
+        Serial.println(buffer);
+        if (!publish_message(topic, buffer)) {
+            Serial.println("[RELAY] error MQTT publish config");
+        }
+    }
+
 }

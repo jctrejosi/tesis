@@ -92,4 +92,10 @@ namespace relay {
         Serial.println("[RELAY] config aplicada");
     }
 
+    void handle_read_config_command(const char* payload) {
+        (void)payload;
+        ensure_initialized();
+        Publisher::publish_config(relay_sensor);
+    }
+
 }

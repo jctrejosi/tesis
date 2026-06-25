@@ -8,6 +8,7 @@ namespace relay {
     public:
         static void publish_state(uint8_t channel, RelayState state);
         static void publish_all_state(const Sensor& relay_sensor);
+        static void publish_config(const Sensor& relay_sensor);
     };
 
 }

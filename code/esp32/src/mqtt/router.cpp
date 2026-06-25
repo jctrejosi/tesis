@@ -121,6 +121,8 @@ void route_message(
             relay::handle_set_command(payload);
         } else if (strcmp(command, "config") == 0) {
             relay::handle_config_command(payload);
+        } else if (strcmp(command, "read_config") == 0) {   // <-- NUEVO
+            relay::handle_read_config_command(payload);
         }
         return;
     }
