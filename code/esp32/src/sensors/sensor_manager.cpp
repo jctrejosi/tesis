@@ -27,8 +27,7 @@ namespace sensors {
 
     // ===== timers =====
     static unsigned long last_bme = 0;
-    static unsigned long last_bh  = 0;
-
+    static unsigned long last_as  = 0;
     static unsigned long last_co2 = 0;
     static unsigned long last_ec  = 0;
 
@@ -43,38 +42,43 @@ namespace sensors {
         unsigned long now = millis();
 
         last_bme = now;
-        last_bh  = now;
-        last_co2 = now;
-        last_ec  = now;
+        last_as  = now + 2000;
+        last_co2 = now + 4000;
+        last_ec  = now + 6000;
     }
 
     // =========================================================
     void update_individual() {
 
         unsigned long now = millis();
+        unsigned long deadline = now + 500;
 
         // ===== BME680 =====
         if (now - last_bme >= bme680.get_config().interval_ms) {
             last_bme = now;
             bme680::Publisher::publish(bme680.read());
+            if (millis() > deadline) return;
         }
 
         // ===== as7341 =====
-        if (now - last_bh >= as7341.get_config().interval_ms) {
-            last_bh = now;
+        if (now - last_as >= as7341.get_config().interval_ms) {
+            last_as = now;
             as7341::Publisher::publish(as7341.read());
+            if (millis() > deadline) return;
         }
 
         // ===== MH-Z19B =====
         if (now - last_co2 >= mhz19b.get_config().interval_ms) {
             last_co2 = now;
             mhz19b::Publisher::publish(mhz19b.read());
+            if (millis() > deadline) return;
         }
 
         // ===== SOIL EC RS485 =====
         if (now - last_ec >= soil_ec.get_config().interval_ms) {
             last_ec = now;
             soil_ec_rs485::Publisher::publish(soil_ec.read());
+            if (millis() > deadline) return;
         }
     }
 

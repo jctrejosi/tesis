@@ -12,6 +12,7 @@ void setup() {
     setup_mqtt();
 
     sensors::begin();
+    sensors::publish_all_now();
     relay::ensure_initialized();
     scheduler::begin();
 }

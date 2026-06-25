@@ -16,8 +16,8 @@ namespace soil_ec_rs485 {
         cfg.re_pin = 14;
 
         cfg.use_temperature_compensation = true;
-        cfg.retries = 3;
-        cfg.response_timeout_ms = 200;
+        cfg.retries = 2;
+        cfg.response_timeout_ms = 150;
 
         // Valores Modbus por defecto (placeholder genérico)
         cfg.modbus_slave_id      = 1;
