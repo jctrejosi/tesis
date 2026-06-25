@@ -1,5 +1,6 @@
 #include "sensors/bme680/publisher.h"
 #include "mqtt/client.h"
+#include "mqtt/telemetry_publisher.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -7,31 +8,20 @@
 namespace bme680 {
 
     bool Publisher::publish(const BME680Data& data) {
-        StaticJsonDocument<256> json;  // aumentamos tamaño para el nuevo formato
+        StaticJsonDocument<256> doc;
+        JsonObject metrics = doc.to<JsonObject>();
 
-        json["device_id"] = 1;
-        json["timestamp"] = (const char*)nullptr;  // backend usará server time
-
-        JsonObject metrics = json.createNestedObject("metrics");
-        metrics["temperature"] = data.temperature;
-        metrics["humidity"] = data.humidity;
-        metrics["pressure"] = data.pressure;
+        metrics["temperature"]   = data.temperature;
+        metrics["humidity"]      = data.humidity;
+        metrics["pressure"]      = data.pressure;
         metrics["gas_resistance"] = data.gas_resistance;
 
-        char payload[256];
-        serializeJson(json, payload, sizeof(payload));
+        publish_telemetry("bme680", metrics);
 
-        static constexpr const char* TOPIC = "growbox/bme680/data";
-        bool ok = publish_message(TOPIC, payload);
-
-        if (ok) {
-            Serial.print("[BME680] ");
-            Serial.println(payload);
-        } else {
-            Serial.println("[BME680] publish failed");
-        }
-
-        return ok;
+        Serial.print("[BME680] published: ");
+        serializeJson(doc, Serial);
+        Serial.println();
+        return true;
     }
 
     void Publisher::publish_config(const Config& cfg) {
