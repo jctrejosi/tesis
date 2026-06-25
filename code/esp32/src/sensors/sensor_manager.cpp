@@ -154,4 +154,15 @@ namespace sensors {
         bme680::Config cfg = bme680.get_config();
         bme680::Publisher::publish_config(cfg);
     }
+
+    void publish_mhz19b_config() {
+        mhz19b::Config cfg = mhz19b.get_config();
+        mhz19b::Publisher::publish_config(cfg);
+    }
+
+    void publish_soil_ec_rs485_config() {
+        soil_ec_rs485::Config cfg = soil_ec.get_config();
+        soil_ec_rs485::Publisher::publish_config(cfg);
+    }
+
 }

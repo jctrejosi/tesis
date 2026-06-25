@@ -42,4 +42,8 @@ namespace mhz19b {
         Serial.println("[MHZ19B] config aplicada");
     }
 
+    void handle_read_config_command() {
+        sensors::publish_mhz19b_config();
+    }
+
 }

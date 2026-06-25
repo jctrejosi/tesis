@@ -51,7 +51,7 @@ void route_message(
             bme680::handle_read_command();
         } else if (strcmp(command, "config") == 0) {
             bme680::handle_config_command(payload);
-        } else if (strcmp(command, "read_config") == 0) {   // <-- NUEVO
+        } else if (strcmp(command, "read_config") == 0) {
             bme680::handle_read_config_command();
         }
         return;
@@ -71,6 +71,10 @@ void route_message(
             as7341::handle_config_command(payload);
         }
 
+        else if (strcmp(command, "read_config") == 0) {
+            as7341::handle_read_config_command();
+        }
+
         return;
     }
 
@@ -79,15 +83,13 @@ void route_message(
     // =====================
 
     if (strcmp(module, "mhz19b") == 0) {
-
         if (strcmp(command, "read") == 0) {
             mhz19b::handle_read_command();
-        }
-
-        else if (strcmp(command, "config") == 0) {
+        } else if (strcmp(command, "config") == 0) {
             mhz19b::handle_config_command(payload);
+        } else if (strcmp(command, "read_config") == 0) {
+            mhz19b::handle_read_config_command();
         }
-
         return;
     }
 
@@ -105,6 +107,10 @@ void route_message(
             soil_ec_rs485::handle_config_command(payload);
         }
 
+        else if (strcmp(command, "read_config") == 0) {
+            soil_ec_rs485::handle_read_config_command();
+        }
+
         return;
     }
 
@@ -119,7 +125,7 @@ void route_message(
             relay::handle_set_command(payload);
         } else if (strcmp(command, "config") == 0) {
             relay::handle_config_command(payload);
-        } else if (strcmp(command, "read_config") == 0) {   // <-- NUEVO
+        } else if (strcmp(command, "read_config") == 0) {
             relay::handle_read_config_command(payload);
         }
         return;

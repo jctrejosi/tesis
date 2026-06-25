@@ -26,6 +26,9 @@ namespace sensors {
     bool apply_mhz19b_config(const mhz19b::Config& cfg);
     bool apply_soil_ec_rs485_config(const soil_ec_rs485::Config& cfg);
 
+    // ===== publish config =====
+    void publish_soil_ec_rs485_config();
     void publish_as7341_config();
     void publish_bme680_config();
+    void publish_mhz19b_config();
 }

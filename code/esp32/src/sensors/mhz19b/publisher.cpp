@@ -36,4 +36,24 @@ namespace mhz19b {
             Serial.println("[MHZ19B] error al publicar MQTT");
         }
     }
+
+    void Publisher::publish_config(const Config& cfg) {
+        StaticJsonDocument<128> doc;
+        doc["interval_ms"]      = cfg.interval_ms;
+        doc["simulation"]       = cfg.simulation;
+        doc["auto_calibration"] = cfg.auto_calibration;
+
+        char buffer[128];
+        size_t len = serializeJson(doc, buffer, sizeof(buffer));
+        if (len == 0 || len >= sizeof(buffer)) {
+            Serial.println("[MHZ19B] error serializando config");
+            return;
+        }
+
+        Serial.print("[MHZ19B] publish config: ");
+        Serial.println(buffer);
+        if (!publish_message("growbox/mhz19b/config", buffer)) {
+            Serial.println("[MHZ19B] error MQTT config");
+        }
+    }
 }

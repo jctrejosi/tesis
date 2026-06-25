@@ -7,6 +7,7 @@ namespace mhz19b {
     class Publisher {
     public:
         static void publish(const MHZ19BData& data, const char* topic_suffix = "mhz19b");
+        static void publish_config(const Config& cfg);
     };
 
 }
