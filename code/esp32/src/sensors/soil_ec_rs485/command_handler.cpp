@@ -67,6 +67,15 @@ namespace soil_ec_rs485 {
             cfg.response_timeout_ms = doc["response_timeout_ms"];
         }
 
+        if (doc.containsKey("modbus_slave_id"))       cfg.modbus_slave_id      = doc["modbus_slave_id"];
+        if (doc.containsKey("modbus_function"))       cfg.modbus_function      = doc["modbus_function"];
+        if (doc.containsKey("modbus_ec_register"))    cfg.modbus_ec_register   = doc["modbus_ec_register"];
+        if (doc.containsKey("modbus_temp_register"))  cfg.modbus_temp_register = doc["modbus_temp_register"];
+        if (doc.containsKey("modbus_reg_count"))      cfg.modbus_reg_count     = doc["modbus_reg_count"];
+        if (doc.containsKey("ec_scale_factor"))       cfg.ec_scale_factor      = doc["ec_scale_factor"];
+        if (doc.containsKey("temp_scale_factor"))     cfg.temp_scale_factor    = doc["temp_scale_factor"];
+        if (doc.containsKey("read_temperature"))      cfg.read_temperature     = doc["read_temperature"];
+
         if (!validate_config(cfg)) {
             Serial.println("[SOIL_EC_RS485] config inválida");
             return;

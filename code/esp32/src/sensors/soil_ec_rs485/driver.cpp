@@ -145,20 +145,15 @@ namespace soil_ec_rs485 {
     bool SoilECDriver::send_request() {
         if (!serial) return false;
 
-        // Placeholder Modbus RTU válido.
-        // Ajustar slave id, registro inicial y cantidad según el sensor real.
-        uint8_t request[8] = {
-            MODBUS_SLAVE_ID,
-            MODBUS_FUNC_READ_HOLDING_REGS,
-            static_cast<uint8_t>(MODBUS_START_REG >> 8),
-            static_cast<uint8_t>(MODBUS_START_REG & 0xFF),
-            static_cast<uint8_t>(MODBUS_REG_COUNT >> 8),
-            static_cast<uint8_t>(MODBUS_REG_COUNT & 0xFF),
-            0x00,
-            0x00
-        };
+        uint8_t request[8];
+        request[0] = current_config.modbus_slave_id;
+        request[1] = current_config.modbus_function;
+        request[2] = static_cast<uint8_t>(current_config.modbus_ec_register >> 8);
+        request[3] = static_cast<uint8_t>(current_config.modbus_ec_register & 0xFF);
+        request[4] = static_cast<uint8_t>(current_config.modbus_reg_count >> 8);
+        request[5] = static_cast<uint8_t>(current_config.modbus_reg_count & 0xFF);
 
-        const uint16_t crc = calculate_crc(request, 6);
+        uint16_t crc = calculate_crc(request, 6);
         request[6] = static_cast<uint8_t>(crc & 0xFF);
         request[7] = static_cast<uint8_t>((crc >> 8) & 0xFF);
 
@@ -167,7 +162,6 @@ namespace soil_ec_rs485 {
         serial->flush();
         delay(2);
         set_receive_mode();
-
         return true;
     }
 
@@ -222,59 +216,47 @@ namespace soil_ec_rs485 {
             return data;
         }
 
-        if (!hardware_ready || !serial) {
-            return data;
-        }
+        if (!hardware_ready || !serial) return data;
 
         for (uint8_t attempt = 0; attempt < current_config.retries; attempt++) {
             clear_serial();
+            if (!send_request()) continue;
 
-            if (!send_request()) {
-                continue;
-            }
+            // Tamaño de respuesta: slave(1) + func(1) + byte_count(1) + datos(2*reg_count) + CRC(2)
+            size_t response_len = 3 + 2 * current_config.modbus_reg_count + 2;
+            uint8_t buffer[response_len];
+            memset(buffer, 0, response_len);
 
-            uint8_t buffer[MODBUS_RESPONSE_LEN] = {0};
+            if (!read_response(buffer, response_len)) continue;
 
-            if (!read_response(buffer, sizeof(buffer))) {
-                continue;
-            }
+            // Verificar slave id y función
+            if (buffer[0] != current_config.modbus_slave_id ||
+                buffer[1] != current_config.modbus_function) continue;
 
-            if (buffer[0] != MODBUS_SLAVE_ID ||
-                buffer[1] != MODBUS_FUNC_READ_HOLDING_REGS ||
-                buffer[2] != 0x04) {
-                continue;
-            }
+            uint8_t byte_count = buffer[2];
+            if (byte_count != 2 * current_config.modbus_reg_count) continue;
 
-            const uint16_t received_crc =
-                static_cast<uint16_t>(buffer[7]) |
-                (static_cast<uint16_t>(buffer[8]) << 8);
-
-            const uint16_t calculated_crc = calculate_crc(buffer, 7);
-
+            // Verificar CRC
+            uint16_t received_crc = buffer[response_len - 2] | (buffer[response_len - 1] << 8);
+            uint16_t calculated_crc = calculate_crc(buffer, response_len - 2);
             if (received_crc != calculated_crc) {
                 Serial.println("[SOIL_EC_RS485] CRC inválido");
                 continue;
             }
 
-            // Placeholder de parseo: ajustar según el mapa real del sensor.
-            const uint16_t ec_raw_int =
-                (static_cast<uint16_t>(buffer[3]) << 8) |
-                static_cast<uint16_t>(buffer[4]);
+            // Parsear EC (primer registro)
+            uint16_t ec_raw_int = (buffer[3] << 8) | buffer[4];
+            data.ec_raw = ec_raw_int / current_config.ec_scale_factor;
 
-            const uint16_t temp_int =
-                (static_cast<uint16_t>(buffer[5]) << 8) |
-                static_cast<uint16_t>(buffer[6]);
-
-            data.ec_raw = ec_raw_int / 100.0f;
-            data.temperature = temp_int / 10.0f;
-
-            if (data.ec_raw < 0 || data.ec_raw > 20) {
-                data.ec_raw = NAN;
+            // Parsear temperatura si está habilitada y hay al menos 2 registros
+            if (current_config.read_temperature && current_config.modbus_reg_count >= 2) {
+                uint16_t temp_int = (buffer[5] << 8) | buffer[6];
+                data.temperature = temp_int / current_config.temp_scale_factor;
             }
 
-            if (data.temperature < -40 || data.temperature > 85) {
-                data.temperature = NAN;
-            }
+            // Validación de rangos
+            if (data.ec_raw < 0.0f || data.ec_raw > 23.0f) data.ec_raw = NAN;
+            if (data.temperature < -40.0f || data.temperature > 85.0f) data.temperature = NAN;
 
             return data;
         }

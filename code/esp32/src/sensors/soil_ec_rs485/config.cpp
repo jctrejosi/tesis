@@ -7,36 +7,51 @@ namespace soil_ec_rs485 {
         cfg.interval_ms = 5000;
         cfg.simulation = false;
 
-        cfg.uart_port = 2;        // usar UART2
-        cfg.baudrate = 9600;      // típico para sensores RS485
+        cfg.uart_port = 2;
+        cfg.baudrate = 9600;
 
-        cfg.rx_pin = 18;          // RO del MAX485
-        cfg.tx_pin = 19;          // DI del MAX485
-        cfg.de_pin = 14;          // DE+RE juntos en un solo pin
-        cfg.re_pin = 14;          // mismo pin para RE
+        cfg.rx_pin = 18;
+        cfg.tx_pin = 19;
+        cfg.de_pin = 14;
+        cfg.re_pin = 14;
 
         cfg.use_temperature_compensation = true;
         cfg.retries = 3;
         cfg.response_timeout_ms = 200;
 
+        // Valores Modbus por defecto (placeholder genérico)
+        cfg.modbus_slave_id      = 1;
+        cfg.modbus_function      = 0x03;
+        cfg.modbus_ec_register   = 0x0000;
+        cfg.modbus_temp_register = 0x0001;
+        cfg.modbus_reg_count     = 2;
+        cfg.ec_scale_factor      = 100.0f;
+        cfg.temp_scale_factor    = 10.0f;
+        cfg.read_temperature     = true;
+
         return cfg;
     }
 
     bool validate_config(const Config& cfg) {
-        if (cfg.interval_ms < 1000) return false;
-        if (cfg.interval_ms > 600000) return false;
-
+        if (cfg.interval_ms < 1000 || cfg.interval_ms > 600000) return false;
         if (cfg.uart_port > 2) return false;
         if (cfg.baudrate < 1200 || cfg.baudrate > 115200) return false;
-
         if (cfg.rx_pin < -1 || cfg.rx_pin > 39) return false;
         if (cfg.tx_pin < -1 || cfg.tx_pin > 39) return false;
         if (cfg.de_pin < -1 || cfg.de_pin > 39) return false;
         if (cfg.re_pin < -1 || cfg.re_pin > 39) return false;
-
         if (cfg.retries == 0 || cfg.retries > 10) return false;
-
         if (cfg.response_timeout_ms < 50 || cfg.response_timeout_ms > 2000) return false;
+
+        // Validaciones Modbus
+        if (cfg.modbus_slave_id < 1 || cfg.modbus_slave_id > 247) return false;
+        if (cfg.modbus_function != 0x03 && cfg.modbus_function != 0x04) return false;
+        // No hay restricciones fuertes para los registros, solo que no sean absurdos
+        if (cfg.modbus_ec_register > 0xFFFF) return false;
+        if (cfg.modbus_temp_register > 0xFFFF) return false;
+        if (cfg.modbus_reg_count < 1 || cfg.modbus_reg_count > 10) return false;
+        if (cfg.ec_scale_factor <= 0.0f || cfg.ec_scale_factor > 10000.0f) return false;
+        if (cfg.temp_scale_factor <= 0.0f || cfg.temp_scale_factor > 1000.0f) return false;
 
         return true;
     }

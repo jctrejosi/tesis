@@ -9,6 +9,16 @@ namespace soil_ec_rs485 {
         uint32_t interval_ms = 5000;
         bool simulation = false;
 
+         // --- Parámetros Modbus configurables ---
+        uint8_t  modbus_slave_id      = 1;
+        uint8_t  modbus_function      = 0x03;   // 0x03 = holding, 0x04 = input
+        uint16_t modbus_ec_register   = 0x0000; // dirección del registro de EC
+        uint16_t modbus_temp_register = 0x0001; // dirección del registro de temperatura
+        uint8_t  modbus_reg_count     = 2;      // cantidad de registros a leer (normalmente 2)
+        float    ec_scale_factor      = 100.0f; // división para convertir entero → mS/cm
+        float    temp_scale_factor    = 10.0f;  // división para convertir entero → °C
+        bool     read_temperature     = true;   // si el sensor entrega temperatura
+
         // UART / RS485
         uint8_t uart_port = 2;
         uint32_t baudrate = 9600;

@@ -7,7 +7,7 @@ namespace bme680 {
         Config cfg;
 
         cfg.interval_ms = 10000;
-        cfg.simulation = true;
+        cfg.simulation = false;
 
         cfg.temp_oversample = 8;
         cfg.hum_oversample = 2;

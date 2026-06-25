@@ -30,6 +30,15 @@ namespace storage {
         prefs.putUChar("retries", cfg.retries);
         prefs.putUShort("timeout", cfg.response_timeout_ms);
 
+        prefs.putUChar("mb_slave", cfg.modbus_slave_id);
+        prefs.putUChar("mb_func", cfg.modbus_function);
+        prefs.putUShort("mb_ec_reg", cfg.modbus_ec_register);
+        prefs.putUShort("mb_temp_reg", cfg.modbus_temp_register);
+        prefs.putUChar("mb_reg_cnt", cfg.modbus_reg_count);
+        prefs.putFloat("ec_scale", cfg.ec_scale_factor);
+        prefs.putFloat("temp_scale", cfg.temp_scale_factor);
+        prefs.putBool("read_temp", cfg.read_temperature);
+
         prefs.end();
         return true;
     }
@@ -58,6 +67,15 @@ namespace storage {
 
         cfg.retries = prefs.getUChar("retries", cfg.retries);
         cfg.response_timeout_ms = prefs.getUShort("timeout", cfg.response_timeout_ms);
+
+        cfg.modbus_slave_id      = prefs.getUChar("mb_slave", cfg.modbus_slave_id);
+        cfg.modbus_function      = prefs.getUChar("mb_func", cfg.modbus_function);
+        cfg.modbus_ec_register   = prefs.getUShort("mb_ec_reg", cfg.modbus_ec_register);
+        cfg.modbus_temp_register = prefs.getUShort("mb_temp_reg", cfg.modbus_temp_register);
+        cfg.modbus_reg_count     = prefs.getUChar("mb_reg_cnt", cfg.modbus_reg_count);
+        cfg.ec_scale_factor      = prefs.getFloat("ec_scale", cfg.ec_scale_factor);
+        cfg.temp_scale_factor    = prefs.getFloat("temp_scale", cfg.temp_scale_factor);
+        cfg.read_temperature     = prefs.getBool("read_temp", cfg.read_temperature);
 
         prefs.end();
 

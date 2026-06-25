@@ -9,7 +9,7 @@
 
 namespace mhz19b {
 
-    static HardwareSerial co2_serial(2);
+    static HardwareSerial co2_serial(1);
 
     MHZ19BDriver::MHZ19BDriver()
         : simulation_mode(false),
