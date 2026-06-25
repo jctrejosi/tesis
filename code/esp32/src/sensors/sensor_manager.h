@@ -14,6 +14,7 @@ namespace sensors {
     void update_global_sync();
 
     // ===== publish inmediato =====
+    void publish_all_now();
     void publish_bme680_now();
     void publish_as7341_now();
     void publish_mhz19b_now();

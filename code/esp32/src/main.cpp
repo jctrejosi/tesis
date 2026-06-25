@@ -3,6 +3,7 @@
 #include "mqtt/client.h"
 #include "sensors/scheduler.h"
 #include "sensors/sensor_manager.h"
+#include "actuators/relay/command_handler.h"
 
 void setup() {
     Serial.begin(115200);
@@ -11,6 +12,7 @@ void setup() {
     setup_mqtt();
 
     sensors::begin();
+    relay::ensure_initialized();
     scheduler::begin();
 }
 
