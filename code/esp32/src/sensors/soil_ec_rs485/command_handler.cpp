@@ -89,4 +89,8 @@ namespace soil_ec_rs485 {
         Serial.println("[SOIL_EC_RS485] config aplicada correctamente");
     }
 
+    void handle_read_config_command() {
+        sensors::publish_soil_ec_rs485_config();
+    }
+
 }
