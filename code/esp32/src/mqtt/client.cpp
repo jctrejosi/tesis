@@ -2,14 +2,17 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <cstring>
+#include <time.h>
 #include "app_config.h"
-#include "mqtt/router.h"
+#include "router.h"
+#include "message_queue.h"
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 static unsigned long last_mqtt_attempt = 0;
 static const unsigned long retry_interval = 5000;
+static MessageQueue pending_messages;
 
 bool wifi_connected = false;
 
@@ -73,9 +76,30 @@ bool reconnect_mqtt() {
 
 bool publish_message(const char* topic, const char* payload) {
     if (!reconnect_mqtt()) {
+        pending_messages.push(topic, payload);   // guardar para más tarde
         return false;
     }
-    return client.publish(topic, payload);
+    bool ok = client.publish(topic, payload);
+    if (!ok) {
+        pending_messages.push(topic, payload);   // guardar si falló el envío
+    }
+    return ok;
+}
+
+void flush_message_queue() {
+    if (!wifi_connected || !client.connected()) return;
+
+    QueuedMessage msg;
+    while (pending_messages.pop(msg)) {
+        if (client.publish(msg.topic, msg.payload)) {
+            Serial.print("[MQTT] mensaje reenviado: ");
+            Serial.println(msg.topic);
+        } else {
+            // Si falla, lo volvemos a encolar y paramos para no saturar
+            pending_messages.push(msg.topic, msg.payload);
+            break;
+        }
+    }
 }
 
 void mqtt_loop() {
@@ -92,6 +116,7 @@ void mqtt_loop() {
         reconnect_mqtt();
     }
     client.loop();
+    flush_message_queue();
 }
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
