@@ -65,13 +65,16 @@ bool reconnect_mqtt() {
     }
     last_mqtt_attempt = millis();
     Serial.println("Connecting to MQTT...");
-    if (client.connect("ESP32GrowBox")) {
+    if (client.connect("ESP32GrowBox", NULL, NULL, "growbox/status", 0, true, "offline")) {
         Serial.println("MQTT connected");
         client.subscribe("growbox/#");
+        // Publicar estado online
+        client.publish("growbox/status", "online");
         return true;
     }
+
     Serial.println("MQTT connection failed");
-    return false;
+    return false;da
 }
 
 bool publish_message(const char* topic, const char* payload) {
@@ -103,21 +106,19 @@ void flush_message_queue() {
 }
 
 void mqtt_loop() {
-    static bool was_disconnected = true;
+    static bool was_connected = false;      // estado anterior real
 
     bool now_connected = (WiFi.status() == WL_CONNECTED);
 
-    // Acabamos de (re)conectar: enviamos telemetría fresca
-    if (!was_disconnected && now_connected) {
+    // Transición desconectado -> conectado: publicar telemetría fresca
+    if (!was_connected && now_connected) {
         sensors::publish_all_now();          // requiere #include "sensors/sensor_manager.h"
     }
-    was_disconnected = !now_connected;
+    was_connected = now_connected;
 
-    // Actualizar variable global de estado WiFi
     wifi_connected = now_connected;
 
     if (!wifi_connected) {
-        // Sin WiFi no intentamos nada más; la autoreconexión sigue en segundo plano
         return;
     }
 

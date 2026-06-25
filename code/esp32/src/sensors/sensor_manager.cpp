@@ -16,6 +16,7 @@
 #include "sensors/soil_ec_rs485/config_store.h"
 
 #include <Arduino.h>
+#include <Wire.h>
 
 namespace sensors {
 
@@ -33,6 +34,7 @@ namespace sensors {
 
     // =========================================================
     void begin() {
+        Wire.begin(21, 22)
 
         bme680.init();
         as7341.init();

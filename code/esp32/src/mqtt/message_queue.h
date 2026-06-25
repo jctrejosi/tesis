@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-#define QUEUE_CAPACITY 10       // ajusta según tu memoria disponible
+#define QUEUE_CAPACITY 20       // ajusta según tu memoria disponible
 #define TOPIC_MAX_LEN  64
 #define PAYLOAD_MAX_LEN 256
 

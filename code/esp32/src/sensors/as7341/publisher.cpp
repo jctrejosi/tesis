@@ -5,7 +5,7 @@
 namespace as7341 {
 
     void Publisher::publish(const AS7341Data& data) {
-        StaticJsonDocument<384> doc;
+        StaticJsonDocument<512> doc;
         JsonObject metrics = doc.to<JsonObject>();
 
         metrics["f1_415nm"] = data.f1_415nm;
