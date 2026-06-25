@@ -2,10 +2,10 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <cstring>
-#include <time.h>
 #include "app_config.h"
 #include "router.h"
 #include "message_queue.h"
+#include "sensors/sensor_manager.h" 
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -103,19 +103,32 @@ void flush_message_queue() {
 }
 
 void mqtt_loop() {
-    // Actualizar el estado de WiFi (sin bloqueos)
-    wifi_connected = (WiFi.status() == WL_CONNECTED);
+    static bool was_disconnected = true;
+
+    bool now_connected = (WiFi.status() == WL_CONNECTED);
+
+    // Acabamos de (re)conectar: enviamos telemetría fresca
+    if (!was_disconnected && now_connected) {
+        sensors::publish_all_now();          // requiere #include "sensors/sensor_manager.h"
+    }
+    was_disconnected = !now_connected;
+
+    // Actualizar variable global de estado WiFi
+    wifi_connected = now_connected;
 
     if (!wifi_connected) {
-        // No hacemos nada más, la auto-reconexión trabaja en segundo plano
+        // Sin WiFi no intentamos nada más; la autoreconexión sigue en segundo plano
         return;
     }
 
-    // Mantener MQTT
+    // Mantener MQTT conectado
     if (!client.connected()) {
         reconnect_mqtt();
     }
+
     client.loop();
+
+    // Reenviar mensajes pendientes de la cola
     flush_message_queue();
 }
 
