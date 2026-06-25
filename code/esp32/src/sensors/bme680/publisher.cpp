@@ -34,4 +34,29 @@ namespace bme680 {
         return ok;
     }
 
+    void Publisher::publish_config(const Config& cfg) {
+        StaticJsonDocument<256> doc;
+        doc["interval_ms"]       = cfg.interval_ms;
+        doc["simulation"]        = cfg.simulation;
+        doc["temp_oversample"]   = cfg.temp_oversample;
+        doc["hum_oversample"]    = cfg.hum_oversample;
+        doc["press_oversample"]  = cfg.press_oversample;
+        doc["iir_filter"]        = cfg.iir_filter;
+        doc["gas_heater_temp"]   = cfg.gas_heater_temp;
+        doc["gas_heater_duration"] = cfg.gas_heater_duration;
+
+        char buffer[256];
+        size_t len = serializeJson(doc, buffer, sizeof(buffer));
+        if (len == 0 || len >= sizeof(buffer)) {
+            Serial.println("[BME680] error serializando config");
+            return;
+        }
+
+        Serial.print("[BME680] publish config: ");
+        Serial.println(buffer);
+        if (!publish_message("growbox/bme680/config", buffer)) {
+            Serial.println("[BME680] error MQTT config");
+        }
+    }
+
 }

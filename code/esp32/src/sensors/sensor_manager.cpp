@@ -109,6 +109,13 @@ namespace sensors {
         soil_ec_rs485::Publisher::publish(soil_ec.read());
     }
 
+    void publish_all_now() {
+        publish_bme680_now();
+        publish_as7341_now();
+        publish_mhz19b_now();
+        publish_soil_ec_rs485_now();
+    }
+
     // =========================================================
     // config
 
@@ -135,15 +142,16 @@ namespace sensors {
         return true;
     }
 
-    void publish_all_now() {
-        publish_bme680_now();
-        publish_as7341_now();
-        publish_mhz19b_now();
-        publish_soil_ec_rs485_now();
-    }
+    // =========================================================
+    // publish config
 
     void publish_as7341_config() {
         as7341::Config cfg = as7341.get_config();
         as7341::Publisher::publish_config(cfg);
+    }
+
+    void publish_bme680_config() {
+        bme680::Config cfg = bme680.get_config();
+        bme680::Publisher::publish_config(cfg);
     }
 }

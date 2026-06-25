@@ -19,7 +19,6 @@ namespace sensors {
     void publish_as7341_now();
     void publish_mhz19b_now();
     void publish_soil_ec_rs485_now();
-    void publish_dfrobot_sen0193_now();
 
     // ===== config API =====
     bool apply_bme680_config(const bme680::Config& cfg);
@@ -27,4 +26,6 @@ namespace sensors {
     bool apply_mhz19b_config(const mhz19b::Config& cfg);
     bool apply_soil_ec_rs485_config(const soil_ec_rs485::Config& cfg);
 
+    void publish_as7341_config();
+    void publish_bme680_config();
 }

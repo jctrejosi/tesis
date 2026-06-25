@@ -42,4 +42,8 @@ namespace bme680 {
         Serial.println("[BME680] nueva configuración aplicada");
     }
 
+    void handle_read_config_command() {
+        sensors::publish_bme680_config();
+    }
+
 }
