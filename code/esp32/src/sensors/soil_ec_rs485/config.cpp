@@ -4,21 +4,18 @@ namespace soil_ec_rs485 {
 
     Config get_default_config() {
         Config cfg;
-
         cfg.interval_ms = 5000;
         cfg.simulation = false;
 
-        cfg.uart_port = 2;
-        cfg.baudrate = 9600;
+        cfg.uart_port = 2;        // usar UART2
+        cfg.baudrate = 9600;      // típico para sensores RS485
 
-        cfg.rx_pin = 16;
-        cfg.tx_pin = 17;
-
-        cfg.de_pin = -1;
-        cfg.re_pin = -1;
+        cfg.rx_pin = 18;          // RO del MAX485
+        cfg.tx_pin = 19;          // DI del MAX485
+        cfg.de_pin = 14;          // DE+RE juntos en un solo pin
+        cfg.re_pin = 14;          // mismo pin para RE
 
         cfg.use_temperature_compensation = true;
-
         cfg.retries = 3;
         cfg.response_timeout_ms = 200;
 
