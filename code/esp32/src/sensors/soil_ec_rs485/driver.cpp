@@ -4,17 +4,11 @@
 
 namespace soil_ec_rs485 {
 
-    static constexpr uint8_t MODBUS_SLAVE_ID = 0x01;
-    static constexpr uint8_t MODBUS_FUNC_READ_HOLDING_REGS = 0x03;
-    static constexpr uint16_t MODBUS_START_REG = 0x0000;   // placeholder: ajustar al datasheet real
-    static constexpr uint16_t MODBUS_REG_COUNT = 0x0002;   // placeholder: 2 registros
-    static constexpr size_t MODBUS_RESPONSE_LEN = 9;
-
     SoilECDriver::SoilECDriver()
         : simulation_mode(false),
-          hardware_ready(false),
-          current_config(get_default_config()),
-          serial(nullptr) {}
+        hardware_ready(false),
+        current_config(get_default_config()),
+        serial(nullptr) {}
 
     void SoilECDriver::release_serial() {
         if (serial != nullptr) {

@@ -15,15 +15,12 @@ void route_message(
     const char* payload
 ) {
 
-    char topic_copy[128];
-
-    strncpy(
-        topic_copy,
-        topic,
-        sizeof(topic_copy)
-    );
-
-    topic_copy[sizeof(topic_copy) - 1] = '\0';
+    char topic_copy[256];
+    if (strlen(topic) >= sizeof(topic_copy)) {
+        Serial.println("[ROUTER] topic demasiado largo, ignorado");
+        return;
+    }
+    strcpy(topic_copy, topic);
 
     char* root = strtok(topic_copy, "/");
     char* module = strtok(nullptr, "/");
