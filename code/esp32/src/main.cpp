@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_task_wdt.h> 
 
 #include "mqtt/client.h"
 #include "sensors/scheduler.h"
@@ -15,9 +16,14 @@ void setup() {
     sensors::publish_all_now();
     relay::ensure_initialized();
     scheduler::begin();
+
+    esp_task_wdt_init(10, true);
+    esp_task_wdt_add(NULL);
 }
 
 void loop() {
+    esp_task_wdt_reset();
+
     mqtt_loop();
     scheduler::update();
 }
