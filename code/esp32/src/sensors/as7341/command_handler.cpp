@@ -77,4 +77,8 @@ namespace as7341 {
         );
     }
 
+    void handle_read_config_command() {
+        sensors::publish_as7341_config();
+    }
+
 }

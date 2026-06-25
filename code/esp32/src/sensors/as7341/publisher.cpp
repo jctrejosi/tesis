@@ -21,4 +21,28 @@ namespace as7341 {
 
         publish_telemetry("as7341", metrics);
     }
+
+    void Publisher::publish_config(const Config& cfg) {
+        StaticJsonDocument<256> doc;
+        doc["interval_ms"]      = cfg.interval_ms;
+        doc["simulation"]       = cfg.simulation;
+        doc["atime"]            = cfg.atime;
+        doc["astep"]            = cfg.astep;
+        doc["gain"]             = cfg.gain;
+        doc["led_enabled"]      = cfg.led_enabled;
+        doc["led_current_ma"]   = cfg.led_current_ma;
+
+        char buffer[256];
+        size_t len = serializeJson(doc, buffer, sizeof(buffer));
+        if (len == 0 || len >= sizeof(buffer)) {
+            Serial.println("[AS7341] error serializando config");
+            return;
+        }
+
+        Serial.print("[AS7341] publish config: ");
+        Serial.println(buffer);
+        if (!publish_message("growbox/as7341/config", buffer)) {
+            Serial.println("[AS7341] error MQTT config");
+        }
+    }
 }

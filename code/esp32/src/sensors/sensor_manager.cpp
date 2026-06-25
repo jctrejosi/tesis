@@ -135,4 +135,8 @@ namespace sensors {
         return true;
     }
 
+    void publish_as7341_config() {
+        as7341::Config cfg = as7341.get_config();
+        as7341::Publisher::publish_config(cfg);
+    }
 }

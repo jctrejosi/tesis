@@ -8,4 +8,6 @@ namespace as7341 {
         const char* payload
     );
 
+    void handle_read_config_command();
+
 }

@@ -21,6 +21,8 @@ public:
     AS7341Driver& get_driver();
     const AS7341Driver& get_driver() const;
 
+    void publish_as7341_config();
+
 private:
     AS7341Driver driver;
     Config config;
