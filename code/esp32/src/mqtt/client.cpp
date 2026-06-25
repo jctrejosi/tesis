@@ -5,7 +5,10 @@
 #include "app_config.h"
 #include "router.h"
 #include "message_queue.h"
-#include "sensors/sensor_manager.h" 
+#include "sensors/sensor_manager.h"
+#include "device_config.h"
+#include <ArduinoJson.h>
+#include <esp_timer.h>
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -74,7 +77,7 @@ bool reconnect_mqtt() {
     }
 
     Serial.println("MQTT connection failed");
-    return false;da
+    return false;
 }
 
 bool publish_message(const char* topic, const char* payload) {
@@ -145,4 +148,20 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     Serial.print("MQTT recibido: ");
     Serial.println(topic);
     route_message(topic, message);
+}
+
+void publish_boot_message() {
+    StaticJsonDocument<128> doc;
+    doc["device_id"]   = get_device_id();
+    doc["status"]      = "boot";
+    doc["boot_time"]   = (uint64_t)esp_timer_get_time();
+    doc["version"]     = "1.0.0";
+
+    char buffer[128];
+    serializeJson(doc, buffer);
+
+    // Intentar publicar; si no hay WiFi todavía, se encolará automáticamente
+    publish_message("growbox/status", buffer);
+    Serial.print("[BOOT] ");
+    Serial.println(buffer);
 }

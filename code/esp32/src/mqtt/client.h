@@ -10,3 +10,5 @@ bool publish_message(const char* topic, const char* payload);
 
 void mqtt_loop();
 void mqtt_callback(char* topic, byte* payload, unsigned int length);
+
+void publish_boot_message();

@@ -34,7 +34,7 @@ namespace sensors {
 
     // =========================================================
     void begin() {
-        Wire.begin(21, 22)
+        Wire.begin(21, 22);
 
         bme680.init();
         as7341.init();
