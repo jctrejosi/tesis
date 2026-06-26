@@ -14,6 +14,8 @@ namespace relay {
         bool inverted;
         bool simulation;
         uint32_t interval_ms;
+
+        uint32_t publish_interval_ms = 0;
     };
 
     RelayConfig get_default_config();

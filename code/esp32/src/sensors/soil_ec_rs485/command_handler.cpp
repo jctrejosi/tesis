@@ -13,7 +13,7 @@ namespace soil_ec_rs485 {
     }
 
     void handle_config_command(const char* payload) {
-        StaticJsonDocument<384> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(19)> doc;
 
         DeserializationError err = deserializeJson(doc, payload);
         if (err) {

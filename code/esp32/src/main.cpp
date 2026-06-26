@@ -33,8 +33,6 @@ void setup() {
     Serial.println("[OTA] listo");
 
     sensors::begin();
-    sensors::publish_all_now();
-    relay::ensure_initialized();
     scheduler::begin();
 
     publish_boot_message();

@@ -199,6 +199,10 @@ namespace soil_ec_rs485 {
         return crc;
     }
 
+    SoilECDriver::~SoilECDriver() {
+        release_serial();
+    }
+
     SoilECData SoilECDriver::read() {
         SoilECData data{};
         data.ec_raw = NAN;

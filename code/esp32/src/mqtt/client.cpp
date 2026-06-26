@@ -80,14 +80,14 @@ bool reconnect_mqtt() {
     return false;
 }
 
-bool publish_message(const char* topic, const char* payload) {
+bool publish_message(const char* topic, const char* payload, MessagePriority priority) {
     if (!reconnect_mqtt()) {
-        pending_messages.push(topic, payload);   // guardar para más tarde
+        pending_messages.push(topic, payload, priority);
         return false;
     }
     bool ok = client.publish(topic, payload);
     if (!ok) {
-        pending_messages.push(topic, payload);   // guardar si falló el envío
+        pending_messages.push(topic, payload, priority);
     }
     return ok;
 }
@@ -102,7 +102,7 @@ void flush_message_queue() {
             Serial.println(msg.topic);
         } else {
             // Si falla, lo volvemos a encolar y paramos para no saturar
-            pending_messages.push(msg.topic, msg.payload);
+            pending_messages.push(msg.topic, msg.payload, msg.priority);
             break;
         }
     }
@@ -115,7 +115,8 @@ void mqtt_loop() {
 
     // Transición desconectado -> conectado: publicar telemetría fresca
     if (!was_connected && now_connected) {
-        sensors::publish_all_now();          // requiere #include "sensors/sensor_manager.h"
+        sensors::publish_all_now();
+        relay::Publisher::publish_all_state(relay::get_relay_sensor());
     }
     was_connected = now_connected;
 
@@ -151,7 +152,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 }
 
 void publish_boot_message() {
-    StaticJsonDocument<128> doc;
+    StaticJsonDocument<JSON_OBJECT_SIZE(4)> doc;
     doc["device_id"]   = get_device_id();
     doc["status"]      = "boot";
     doc["boot_time"]   = (uint64_t)esp_timer_get_time();
@@ -161,7 +162,7 @@ void publish_boot_message() {
     serializeJson(doc, buffer);
 
     // Intentar publicar; si no hay WiFi todavía, se encolará automáticamente
-    publish_message("growbox/status", buffer);
+    publish_message("growbox/status", buffer, MessagePriority::HIGH);
     Serial.print("[BOOT] ");
     Serial.println(buffer);
 }

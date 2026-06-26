@@ -48,8 +48,22 @@ namespace mhz19b {
     }
 
     void MHZ19BDriver::set_simulation_mode(bool enabled) {
+        if (enabled == simulation_mode) return;
         simulation_mode = enabled;
         current_config.simulation = enabled;
+
+        if (enabled) {
+            if (serial) {
+                serial->end();
+                serial = nullptr;
+                hardware_ready = false;
+            }
+        } else {
+            serial = &co2_serial;
+            serial->begin(MHZ19B_BAUD, SERIAL_8N1, MHZ19B_RX_PIN, MHZ19B_TX_PIN);
+            hardware_ready = true;  // asumimos éxito
+            apply_hardware_config();
+        }
     }
 
     bool MHZ19BDriver::apply_config(const Config& cfg) {

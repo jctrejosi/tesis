@@ -5,7 +5,7 @@
 namespace as7341 {
 
     void Publisher::publish(const AS7341Data& data) {
-        StaticJsonDocument<512> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(10)> doc;
         JsonObject metrics = doc.to<JsonObject>();
 
         metrics["f1_415nm"] = data.f1_415nm;
@@ -23,7 +23,7 @@ namespace as7341 {
     }
 
     void Publisher::publish_config(const Config& cfg) {
-        StaticJsonDocument<256> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(7)> doc;
         doc["interval_ms"]      = cfg.interval_ms;
         doc["simulation"]       = cfg.simulation;
         doc["atime"]            = cfg.atime;
@@ -41,7 +41,7 @@ namespace as7341 {
 
         Serial.print("[AS7341] publish config: ");
         Serial.println(buffer);
-        if (!publish_message("growbox/as7341/config", buffer)) {
+        if (!publish_message("growbox/as7341/config", buffer, MessagePriority::HIGH)) {
             Serial.println("[AS7341] error MQTT config");
         }
     }

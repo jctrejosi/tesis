@@ -119,13 +119,21 @@ namespace as7341 {
         return true;
     }
 
-    void AS7341Driver::set_simulation_mode(
-        bool enabled
-    ) {
-
+    void AS7341Driver::set_simulation_mode(bool enabled) {
+        if (enabled == simulation_mode) return;
         simulation_mode = enabled;
-
         current_config.simulation = enabled;
+
+        if (enabled) {
+            if (hardware_ready) {
+                hardware_ready = false;
+            }
+        } else {
+            if (sensor.begin()) {
+                hardware_ready = true;
+                apply_hardware_config();
+            }
+        }
     }
 
     bool AS7341Driver::apply_config(

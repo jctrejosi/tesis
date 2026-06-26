@@ -13,7 +13,7 @@ namespace soil_ec_rs485 {
             return;
         }
 
-        StaticJsonDocument<256> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(2)> doc;
         JsonObject metrics = doc.to<JsonObject>();
         metrics["ec"] = data.ec_raw;
         if (!isnan(data.temperature)) {
@@ -26,7 +26,7 @@ namespace soil_ec_rs485 {
     }
 
     void Publisher::publish_config(const Config& cfg) {
-        StaticJsonDocument<384> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(19)> doc;
         doc["interval_ms"]                = cfg.interval_ms;
         doc["simulation"]                 = cfg.simulation;
         doc["uart_port"]                  = cfg.uart_port;
@@ -58,7 +58,7 @@ namespace soil_ec_rs485 {
 
         Serial.print("[SOIL_EC_RS485] publish config: ");
         Serial.println(buffer);
-        if (!publish_message("growbox/soil_ec_rs485/config", buffer)) {
+        if (!publish_message("growbox/soil_ec_rs485/config", buffer, MessagePriority::HIGH)) {
             Serial.println("[SOIL_EC_RS485] error MQTT config");
         }
     }

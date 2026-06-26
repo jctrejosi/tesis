@@ -15,6 +15,7 @@ namespace relay {
         cfg.inverted = false;
         cfg.simulation = false;
         cfg.interval_ms = 0;
+        cfg.publish_interval_ms = 0;
 
         return cfg;
     }
@@ -29,13 +30,15 @@ namespace relay {
     }
 
     bool validate_config(const RelayConfig& cfg) {
-        if (cfg.pin_in1 > 39 || cfg.pin_in2 > 39 ||
-            cfg.pin_in3 > 39 || cfg.pin_in4 > 39) {
-            return false;
-        }
+        // Los pines 34-39 son solo entrada en ESP32, no válidos para salida
+        auto is_valid_output_pin = [](uint8_t pin) {
+            return pin <= 33;
+        };
 
-        if (cfg.pin_in1 >= 34 || cfg.pin_in2 >= 34 ||
-            cfg.pin_in3 >= 34 || cfg.pin_in4 >= 34) {
+        if (!is_valid_output_pin(cfg.pin_in1) ||
+            !is_valid_output_pin(cfg.pin_in2) ||
+            !is_valid_output_pin(cfg.pin_in3) ||
+            !is_valid_output_pin(cfg.pin_in4)) {
             return false;
         }
 

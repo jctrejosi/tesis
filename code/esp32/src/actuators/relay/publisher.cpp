@@ -19,7 +19,7 @@ namespace relay {
             return;
         }
 
-        StaticJsonDocument<64> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(2)> doc;
         doc["channel"] = channel;
         doc["state"] = state_to_str(state);
 
@@ -39,7 +39,7 @@ namespace relay {
         Serial.print(" -> ");
         Serial.println(buffer);
 
-        if (!publish_message(topic, buffer)) {
+        if (!publish_message(topic, buffer, MessagePriority::HIGH)) {
             Serial.println("[RELAY] error MQTT publish");
         }
     }
@@ -54,7 +54,7 @@ namespace relay {
     void Publisher::publish_config(const Sensor& relay_sensor) {
         RelayConfig cfg = relay_sensor.get_config();
 
-        StaticJsonDocument<256> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(8)> doc;
         doc["pin_in1"] = cfg.pin_in1;
         doc["pin_in2"] = cfg.pin_in2;
         doc["pin_in3"] = cfg.pin_in3;
@@ -62,6 +62,7 @@ namespace relay {
         doc["inverted"] = cfg.inverted;
         doc["simulation"] = cfg.simulation;
         doc["interval_ms"] = cfg.interval_ms;
+        doc["publish_interval_ms"] = cfg.publish_interval_ms;
 
         char buffer[256];
         size_t len = serializeJson(doc, buffer, sizeof(buffer));
@@ -73,7 +74,7 @@ namespace relay {
         static const char* topic = "growbox/relay/config";
         Serial.print("[RELAY] publish config: ");
         Serial.println(buffer);
-        if (!publish_message(topic, buffer)) {
+        if (!publish_message(topic, buffer, MessagePriority::HIGH)) {
             Serial.println("[RELAY] error MQTT publish config");
         }
     }

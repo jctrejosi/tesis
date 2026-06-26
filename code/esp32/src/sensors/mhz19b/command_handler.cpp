@@ -13,7 +13,7 @@ namespace mhz19b {
     }
 
     void handle_config_command(const char* payload) {
-        StaticJsonDocument<256> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(3)> doc;
 
         DeserializationError error = deserializeJson(doc, payload);
 

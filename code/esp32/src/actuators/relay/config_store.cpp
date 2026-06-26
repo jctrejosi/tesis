@@ -23,6 +23,7 @@ namespace storage {
         prefs.putBool("sim", cfg.simulation);
 
         prefs.putULong("int", cfg.interval_ms);
+        prefs.putULong("pub_int", cfg.publish_interval_ms);
 
         prefs.end();
 
@@ -47,6 +48,7 @@ namespace storage {
         cfg.simulation = prefs.getBool("sim", cfg.simulation);
 
         cfg.interval_ms = prefs.getULong("int", cfg.interval_ms);
+        cfg.publish_interval_ms = prefs.getULong("pub_int", cfg.publish_interval_ms);
 
         prefs.end();
 

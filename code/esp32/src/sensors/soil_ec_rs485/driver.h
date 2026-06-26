@@ -37,6 +37,8 @@ namespace soil_ec_rs485 {
         SoilECData read();
 
         bool is_ready() const;
+
+        ~SoilECDriver();
     };
 
 }

@@ -81,8 +81,20 @@ namespace bme680 {
     }
 
     void BME680Driver::set_simulation_mode(bool enabled) {
+        if (enabled == simulation_mode) return;
         simulation_mode = enabled;
         current_config.simulation = enabled;
+
+        if (enabled) {
+            if (hardware_ready) {
+                hardware_ready = false;
+            }
+        } else {
+            if (bme.begin(BME680_I2C_ADDRESS)) {
+                hardware_ready = true;
+                apply_hardware_config();
+            }
+        }
     }
 
     bool BME680Driver::apply_config(const Config& cfg) {

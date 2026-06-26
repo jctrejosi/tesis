@@ -8,7 +8,7 @@
 namespace bme680 {
 
     bool Publisher::publish(const BME680Data& data) {
-        StaticJsonDocument<256> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(4)> doc;
         JsonObject metrics = doc.to<JsonObject>();
 
         metrics["temperature"]   = data.temperature;
@@ -25,7 +25,7 @@ namespace bme680 {
     }
 
     void Publisher::publish_config(const Config& cfg) {
-        StaticJsonDocument<256> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(8)> doc;
         doc["interval_ms"]       = cfg.interval_ms;
         doc["simulation"]        = cfg.simulation;
         doc["temp_oversample"]   = cfg.temp_oversample;
@@ -44,7 +44,7 @@ namespace bme680 {
 
         Serial.print("[BME680] publish config: ");
         Serial.println(buffer);
-        if (!publish_message("growbox/bme680/config", buffer)) {
+        if (!publish_message("growbox/bme680/config", buffer, MessagePriority::HIGH)) {
             Serial.println("[BME680] error MQTT config");
         }
     }

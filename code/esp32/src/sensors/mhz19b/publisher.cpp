@@ -12,7 +12,7 @@ namespace mhz19b {
             return;
         }
 
-        StaticJsonDocument<128> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(1)> doc;
         JsonObject metrics = doc.to<JsonObject>();
         metrics["co2"] = data.co2_ppm;
 
@@ -20,7 +20,7 @@ namespace mhz19b {
     }
 
     void Publisher::publish_config(const Config& cfg) {
-        StaticJsonDocument<128> doc;
+        StaticJsonDocument<JSON_OBJECT_SIZE(3)> doc;
         doc["interval_ms"]      = cfg.interval_ms;
         doc["simulation"]       = cfg.simulation;
         doc["auto_calibration"] = cfg.auto_calibration;
@@ -34,7 +34,7 @@ namespace mhz19b {
 
         Serial.print("[MHZ19B] publish config: ");
         Serial.println(buffer);
-        if (!publish_message("growbox/mhz19b/config", buffer)) {
+        if (!publish_message("growbox/mhz19b/config", buffer, MessagePriority::HIGH)) {
             Serial.println("[MHZ19B] error MQTT config");
         }
     }

@@ -5,7 +5,7 @@
 #include <esp_timer.h>   // Para esp_timer_get_time()
 
 void publish_telemetry(const char* sensor_alias, const JsonObject& metrics, const char* timestamp) {
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<JSON_OBJECT_SIZE(2)> doc;
     doc["device_id"] = get_device_id();
 
     // Si se proporciona un timestamp explícito se usa como cadena; si no, se
@@ -26,5 +26,5 @@ void publish_telemetry(const char* sensor_alias, const JsonObject& metrics, cons
 
     char topic[64];
     snprintf(topic, sizeof(topic), "growbox/%s/data", sensor_alias);
-    publish_message(topic, payload);
+    publish_message(topic, payload, MessagePriority::LOW);
 }
