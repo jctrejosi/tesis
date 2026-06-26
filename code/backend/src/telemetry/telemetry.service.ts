@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DRIZZLE } from '../db/database.module';
 import * as schema from '../db/schema';
 
-interface TelemetryMessage {
+export interface TelemetryMessage {
   device_id: number;
   timestamp: string | number | null;
   metrics: Record<string, number>;

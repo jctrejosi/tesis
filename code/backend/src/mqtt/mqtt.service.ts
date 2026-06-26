@@ -6,7 +6,10 @@ import {
   Inject,
 } from '@nestjs/common';
 import * as mqtt from 'mqtt';
-import { TelemetryService } from '../telemetry/telemetry.service';
+import {
+  TelemetryService,
+  TelemetryMessage,
+} from '../telemetry/telemetry.service';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE } from '../db/database.module';
@@ -67,6 +70,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           this.logger.log('Suscrito a growbox/status');
         }
       });
+
+      // NUEVA SUSCRIPCIÓN: respuestas de configuración de sensores
+      client.subscribe('growbox/+/config', (err) => {
+        if (err) {
+          this.logger.error('Error al suscribirse a growbox/+/config', err);
+        } else {
+          this.logger.log(
+            'Suscrito a growbox/+/config (confirmaciones de configuración)',
+          );
+        }
+      });
     });
 
     client.on('message', (topic, payload) => {
@@ -116,7 +130,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       // Telemetría de sensores: growbox/<alias>/data
       if (parts.length >= 3 && parts[2] === 'data') {
         const sensorAlias = parts[1];
-        void this.telemetryService.ingest(sensorAlias, message as any);
+        void this.telemetryService.ingest(
+          sensorAlias,
+          message as TelemetryMessage,
+        );
         return;
       }
 
@@ -128,9 +145,77 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      // NUEVO: Respuesta de configuración de sensor: growbox/<alias>/config
+      if (parts.length === 3 && parts[2] === 'config') {
+        const sensorAlias = parts[1];
+        void this.handleConfigResponse(sensorAlias, message);
+        return;
+      }
+
       this.logger.warn(`Topic no reconocido: ${topic}`);
     } catch (err) {
       this.logger.error('Error al parsear mensaje MQTT', err);
+    }
+  }
+
+  /**
+   * Procesa la confirmación de configuración de un sensor enviada por el ESP32.
+   * Si la configuración es diferente a la última guardada, inserta una nueva versión.
+   */
+  private async handleConfigResponse(
+    sensorAlias: string,
+    config: Record<string, any>,
+  ) {
+    try {
+      // Buscar sensor por alias
+      const sensor = await this.db.execute<{ id: number }>(sql`
+        SELECT id FROM sensors WHERE alias = ${sensorAlias} LIMIT 1
+      `);
+      if (!sensor.rows.length) {
+        this.logger.warn(
+          `Sensor con alias '${sensorAlias}' no encontrado para guardar config`,
+        );
+        return;
+      }
+      const sensorId = sensor.rows[0].id;
+
+      // Obtener la última configuración guardada
+      const latest = await this.db.execute<{
+        config: any;
+        version: number;
+      }>(sql`
+        SELECT config, version
+        FROM sensor_configs
+        WHERE sensor_id = ${sensorId}
+        ORDER BY version DESC
+        LIMIT 1
+      `);
+
+      const newConfigStr = JSON.stringify(config);
+
+      if (latest.rows.length > 0) {
+        const currentConfigStr = JSON.stringify(latest.rows[0].config);
+        if (currentConfigStr === newConfigStr) {
+          this.logger.debug(
+            `Config de ${sensorAlias} sin cambios, no se actualiza`,
+          );
+          return;
+        }
+      }
+
+      // Insertar nueva versión
+      const newVersion =
+        latest.rows.length > 0 ? latest.rows[0].version + 1 : 1;
+      await this.db.execute(sql`
+        INSERT INTO sensor_configs (sensor_id, config, version)
+        VALUES (${sensorId}, ${newConfigStr}::jsonb, ${newVersion})
+      `);
+
+      this.logger.log(
+        `Configuración de ${sensorAlias} actualizada a v${newVersion}`,
+      );
+    } catch (err) {
+      this.logger.error(`Error al guardar config de ${sensorAlias}`, err);
     }
   }
 
@@ -140,7 +225,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Buscar el actuador de tipo relay (asumimos que hay uno llamado "relay_principal")
     const actuator = await this.db.execute(sql`
       SELECT id, state FROM actuators WHERE name = 'relay_principal' AND type = 'relay' LIMIT 1
     `);
@@ -153,7 +237,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const actuatorId = actuator.rows[0].id as number;
     const currentState = (actuator.rows[0].state as Record<string, any>) || {};
 
-    // Actualizar el estado del canal específico
     const newState = {
       ...currentState,
       [`channel_${channel}`]: state,
@@ -164,7 +247,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       WHERE id = ${actuatorId}
     `);
 
-    // Registrar evento
     await this.db.execute(sql`
       INSERT INTO actuator_events (actuator_id, old_state, new_state, reason)
       VALUES (
