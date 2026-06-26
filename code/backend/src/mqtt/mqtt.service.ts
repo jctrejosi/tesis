@@ -58,6 +58,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           this.logger.log('Suscrito a growbox/relay/+/state');
         }
       });
+
+      // Suscribirse a estado general de la growbox
+      client.subscribe('growbox/status', (err) => {
+        if (err) {
+          this.logger.error('Error al suscribirse a growbox/status', err);
+        } else {
+          this.logger.log('Suscrito a growbox/status');
+        }
+      });
     });
 
     client.on('message', (topic, payload) => {
@@ -69,7 +78,37 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async handleStatusMessage(payload: Buffer) {
+    try {
+      const msg = JSON.parse(payload.toString()) as {
+        device_id?: number;
+        status?: string;
+        boot_time?: number;
+        version?: string;
+      };
+
+      if (msg.status === 'boot' && msg.device_id) {
+        await this.db.execute(sql`
+        INSERT INTO device_boots (device_id, boot_time, server_time, version)
+        VALUES (${msg.device_id}, ${msg.boot_time ?? 0}, now(), ${msg.version ?? null})
+      `);
+        this.logger.log(`Boot registrado para device ${msg.device_id}`);
+      } else if (msg.status === 'online') {
+        this.logger.log(`Device ${msg.device_id} online`);
+      } else if (msg.status === 'offline') {
+        this.logger.log(`Device ${msg.device_id} offline (LWT)`);
+      }
+    } catch (err) {
+      this.logger.error('Error procesando status MQTT', err);
+    }
+  }
+
   private handleMessage(topic: string, payload: Buffer) {
+    if (topic === 'growbox/status') {
+      void this.handleStatusMessage(payload);
+      return;
+    }
+
     try {
       const message = JSON.parse(payload.toString()) as Record<string, any>;
       const parts = topic.split('/');

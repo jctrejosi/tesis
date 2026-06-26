@@ -31,6 +31,19 @@ export const devices = pgTable('devices', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
+export const deviceBoots = pgTable('device_boots', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  deviceId: bigint('device_id', { mode: 'number' })
+    .notNull()
+    .references(() => devices.id, { onDelete: 'cascade' }),
+  bootTime: bigint('boot_time', { mode: 'number' }).notNull(),
+  serverTime: timestamp('server_time', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  version: text('version'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
 export const sensors = pgTable(
   'sensors',
   {

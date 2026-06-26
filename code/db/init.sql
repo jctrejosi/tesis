@@ -33,6 +33,22 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE INDEX IF NOT EXISTS idx_devices_user_id
     ON devices(user_id);
 
+    -- ================================================================
+-- Tabla para registrar cada arranque de un dispositivo
+-- y poder convertir el timestamp interno (microsegundos) a hora real
+-- ================================================================
+CREATE TABLE IF NOT EXISTS device_boots (
+    id           BIGSERIAL PRIMARY KEY,
+    device_id    BIGINT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    boot_time    BIGINT NOT NULL,            -- microsegundos internos reportados por el ESP
+    server_time  TIMESTAMPTZ NOT NULL DEFAULT now(), -- instante real en el servidor al recibir el boot
+    version      TEXT,                        -- versión de firmware (opcional)
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_boots_device_id
+    ON device_boots(device_id, server_time DESC);
+
 -- ================================================================
 -- dominio: sensores
 -- ================================================================

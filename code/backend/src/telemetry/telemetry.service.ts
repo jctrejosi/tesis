@@ -7,7 +7,7 @@ import * as schema from '../db/schema';
 
 interface TelemetryMessage {
   device_id: number;
-  timestamp: string | null;
+  timestamp: string | number | null;
   metrics: Record<string, number>;
 }
 
@@ -20,50 +20,98 @@ export class TelemetryService {
   async ingest(sensorAlias: string, message: TelemetryMessage) {
     const { device_id, timestamp, metrics } = message;
 
+    // 1. Buscar el sensor
     const sensor = await this.db.execute(sql`
-    SELECT id FROM sensors WHERE alias = ${sensorAlias} LIMIT 1
-  `);
+      SELECT id FROM sensors WHERE alias = ${sensorAlias} LIMIT 1
+    `);
     if (!sensor.rows.length) {
       this.logger.warn(`Sensor no encontrado para alias: ${sensorAlias}`);
       return;
     }
     const sensorId = sensor.rows[0].id as number;
 
-    // Timestamp: usar el del dispositivo o now()
-    const ts = timestamp ? timestamp : new Date().toISOString();
+    // 2. Calcular el timestamp real
+    const realTime = await this.resolveTimestamp(device_id, timestamp);
 
-    // Generar un sample_id común para todas las métricas de este mensaje
+    // 3. Generar sample_id común para todas las métricas
     const sampleId = uuidv4();
 
-    // (Opcional) payload completo para raw_payload
+    // 4. Payload completo (opcional)
     const rawPayload = JSON.stringify(message);
 
+    // 5. Insertar cada métrica
     const insertPromises = Object.entries(metrics).map(
       ([metricName, value]) => {
         return this.db.execute(sql`
-      INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value, raw_payload)
-      VALUES (
-        ${ts}::timestamptz,
-        ${sampleId}::uuid,
-        ${device_id},
-        ${sensorId},
-        ${metricName},
-        ${value},
-        ${rawPayload}::jsonb
-      )
-      ON CONFLICT (time, sample_id, device_id, sensor_id, metric_name) DO NOTHING
-    `);
+          INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value, raw_payload)
+          VALUES (
+            ${realTime}::timestamptz,
+            ${sampleId}::uuid,
+            ${device_id},
+            ${sensorId},
+            ${metricName},
+            ${value},
+            ${rawPayload}::jsonb
+          )
+          ON CONFLICT (time, sample_id, device_id, sensor_id, metric_name) DO NOTHING
+        `);
       },
     );
 
     try {
       await Promise.all(insertPromises);
       this.logger.debug(
-        `Ingestado: ${Object.keys(metrics).length} métricas de ${sensorAlias} (sample ${sampleId})`,
+        `Ingestado: ${Object.keys(metrics).length} métricas de ${sensorAlias}`,
       );
     } catch (err) {
       this.logger.error('Error al insertar telemetría', err);
     }
+  }
+
+  /**
+   * Convierte el timestamp del ESP32 (microsegundos desde boot) a una fecha real.
+   * - Si es string ISO8601: se usa directamente.
+   * - Si es número: busca el último boot del dispositivo y calcula la fecha real.
+   * - Si es null/undefined: se usa now().
+   */
+  private async resolveTimestamp(
+    deviceId: number,
+    timestamp: string | number | null | undefined,
+  ): Promise<string> {
+    // Caso 1: ya es string ISO8601
+    if (typeof timestamp === 'string') {
+      return timestamp;
+    }
+
+    // Caso 2: es número (microsegundos desde boot)
+    if (typeof timestamp === 'number') {
+      const boot = await this.db.execute(sql`
+        SELECT boot_time, server_time
+        FROM device_boots
+        WHERE device_id = ${deviceId}
+        ORDER BY server_time DESC
+        LIMIT 1
+      `);
+
+      if (boot.rows.length > 0) {
+        const { boot_time, server_time } = boot.rows[0] as {
+          boot_time: number;
+          server_time: string;
+        };
+        // Calcular: server_time + (timestamp - boot_time) / 1_000_000 segundos
+        const deltaSeconds = (timestamp - boot_time) / 1_000_000;
+        return `(${server_time}::timestamptz + interval '${deltaSeconds} seconds')`;
+      }
+
+      // Si no hay boot registrado, usar now()
+      this.logger.warn(
+        `No hay boot registrado para device ${deviceId}, usando now()`,
+      );
+      return new Date().toISOString();
+    }
+
+    // Caso 3: null/undefined → usar now()
+    return new Date().toISOString();
   }
 
   // Método para obtener las últimas lecturas de un sensor (para debug)
