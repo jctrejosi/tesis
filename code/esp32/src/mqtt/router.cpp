@@ -94,7 +94,7 @@ void route_message(
     // SOIL EC RS485
     // =====================
 
-    if (strcmp(module, "soil_ec_rs485") == 0) {
+    if (strcmp(module, "soil_ec") == 0) {
 
         if (strcmp(command, "read") == 0) {
             soil_ec_rs485::handle_read_command();

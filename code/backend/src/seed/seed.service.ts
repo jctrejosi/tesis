@@ -47,13 +47,6 @@ export class SeedService implements OnModuleInit {
         model: 'SoilEC',
         type: 'soil_ec',
       },
-      {
-        id: 5,
-        alias: 'dfrobot',
-        name: 'DFRobot Humedad Suelo',
-        model: 'SEN0193',
-        type: 'soil_moisture',
-      },
     ];
 
     for (const s of sensores) {
