@@ -6,7 +6,7 @@ namespace bme680 {
     Config get_default_config() {
         Config cfg;
 
-        cfg.interval_ms = 10000;
+        cfg.interval_ms = 15000; // 15s
         cfg.simulation = false;
 
         cfg.temp_oversample = 8;

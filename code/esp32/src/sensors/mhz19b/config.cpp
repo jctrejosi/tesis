@@ -6,7 +6,7 @@ namespace mhz19b {
     Config get_default_config() {
         Config cfg;
 
-        cfg.interval_ms = 10000;
+        cfg.interval_ms = 20000; //20s
         cfg.simulation = false;
         cfg.auto_calibration = false; // robusto: evitar drift en indoor
 

@@ -24,7 +24,7 @@ namespace storage {
     mhz19b::Config load_mhz19b_config() {
         mhz19b::Config cfg = mhz19b::get_default_config();
 
-        if (!prefs.begin("mhz19b", true)) {
+        if (!prefs.begin("mhz19b", false)) {
             Serial.println("[MHZ19B] no se pudo abrir NVS, usando defaults");
             return cfg;
         }

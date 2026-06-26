@@ -12,7 +12,7 @@ namespace bme680 {
 
   struct Config {
       // sistema
-      unsigned long interval_ms = 10000;
+      unsigned long interval_ms = 15000; // 15s
       bool simulation = false;
 
       // oversampling

@@ -23,6 +23,10 @@ namespace soil_ec_rs485 {
         }
 
         publish_telemetry("soil_ec", metrics);
+
+        Serial.print("[SOIL_EC_RS485] published: ");
+        serializeJson(doc, Serial);
+        Serial.println();
     }
 
     void Publisher::publish_config(const Config& cfg) {

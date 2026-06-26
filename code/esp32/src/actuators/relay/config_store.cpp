@@ -34,7 +34,7 @@ namespace storage {
 
         relay::RelayConfig cfg = relay::get_default_config();
 
-        if (!prefs.begin("relay", true)) {
+        if (!prefs.begin("relay", false)) {
             Serial.println("[RELAY] NVS no disponible, usando defaults");
             return cfg;
         }

@@ -8,8 +8,7 @@ namespace as7341 {
 
         Config cfg;
 
-        // Framework
-        cfg.interval_ms = 10000;
+        cfg.interval_ms = 10000; // 10s
         cfg.simulation = false;
 
         // Sensor defaults

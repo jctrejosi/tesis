@@ -6,7 +6,7 @@
 namespace soil_ec_rs485 {
 
     struct Config {
-        uint32_t interval_ms = 5000;
+        uint32_t interval_ms = 25000; // 25s
         bool simulation = false;
 
          // --- Parámetros Modbus configurables ---

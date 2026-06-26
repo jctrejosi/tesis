@@ -46,7 +46,7 @@ namespace storage {
     soil_ec_rs485::Config load_soil_ec_rs485_config() {
         soil_ec_rs485::Config cfg = soil_ec_rs485::get_default_config();
 
-        if (!prefs.begin(NAMESPACE, true)) {
+        if (!prefs.begin(NAMESPACE, false)) {
             Serial.println("[SOIL_EC_RS485] NVS no disponible, usando defaults");
             return cfg;
         }

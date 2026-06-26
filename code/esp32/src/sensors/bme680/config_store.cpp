@@ -29,7 +29,7 @@ namespace storage {
     bme680::Config load_bme680_config() {
         bme680::Config cfg = bme680::get_default_config();
 
-        if (!prefs.begin("bme680", true)) {
+        if (!prefs.begin("bme680", false)) {
             return cfg;
         }
 

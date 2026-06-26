@@ -21,6 +21,10 @@ namespace as7341 {
         metrics["clear"]   = data.clear;
         metrics["nir"]     = data.nir;
 
+        Serial.print("[as7341] published: ");
+        serializeJson(doc, Serial);
+        Serial.println();
+
         publish_telemetry("as7341", metrics);
     }
 

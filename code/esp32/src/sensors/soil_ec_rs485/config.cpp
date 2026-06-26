@@ -4,7 +4,7 @@ namespace soil_ec_rs485 {
 
     Config get_default_config() {
         Config cfg;
-        cfg.interval_ms = 5000;
+        cfg.interval_ms = 25000;
         cfg.simulation = false;
 
         cfg.uart_port = 2;

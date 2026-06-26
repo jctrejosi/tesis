@@ -9,7 +9,7 @@ namespace mhz19b {
 
     struct Config {
         // sistema
-        uint32_t interval_ms = 10000;
+        uint32_t interval_ms = 20000;
         bool simulation = false;
 
         // sensor

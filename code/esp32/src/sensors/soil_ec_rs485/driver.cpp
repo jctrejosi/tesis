@@ -259,7 +259,13 @@ namespace soil_ec_rs485 {
             return data;
         }
 
-        Serial.println("[SOIL_EC_RS485] fallo en lectura");
+        Serial.println("[SOIL_EC_RS485] activando simulación por fallos continuos");
+        simulation_mode = true;
+        current_config.simulation = true;
+
+        // Ahora devolvemos datos simulados en esta misma llamada
+        data.ec_raw = random(50, 250) / 100.0f;
+        data.temperature = random(180, 300) / 10.0f;
         return data;
     }
 

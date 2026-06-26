@@ -27,7 +27,7 @@ namespace storage {
     as7341::Config load_as7341_config() {
         as7341::Config cfg = as7341::get_default_config();
 
-        if (!prefs.begin("as7341", true)) {
+        if (!prefs.begin("as7341", false)) {
             return cfg;
         }
 

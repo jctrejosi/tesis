@@ -17,6 +17,10 @@ namespace mhz19b {
         metrics["co2"] = data.co2_ppm;
 
         publish_telemetry(topic_suffix ? topic_suffix : "mhz19b", metrics);
+
+        Serial.print("[MHZ19B] published: ");
+        serializeJson(doc, Serial);
+        Serial.println();
     }
 
     void Publisher::publish_config(const Config& cfg) {

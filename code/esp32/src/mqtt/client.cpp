@@ -140,6 +140,11 @@ void mqtt_loop() {
 }
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+    // Ignorar mensajes de status (el ESP32 no procesa respuestas de status)
+    if (strcmp(topic, "growbox/status") == 0) {
+        return;
+    }
+
     char message[256];
     size_t n = length;
     if (n >= sizeof(message)) {
