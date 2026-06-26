@@ -17,7 +17,7 @@ void publish_telemetry(const char* sensor_alias, const JsonObject& metrics, cons
         doc["timestamp"] = (uint64_t)esp_timer_get_time();
     }
 
-    JsonObject metrics_obj = doc.createNestedObject("metrics");
+    JsonObject metrics_obj = doc["metrics"].to<JsonObject>();
     for (JsonPair kv : metrics) {
         metrics_obj[kv.key()] = kv.value();
     }
@@ -27,5 +27,5 @@ void publish_telemetry(const char* sensor_alias, const JsonObject& metrics, cons
 
     char topic[64];
     snprintf(topic, sizeof(topic), "growbox/%s/data", sensor_alias);
-    publish_message(topic, payload);
+    publish_message(topic, payload, MessagePriority::LOW);
 }

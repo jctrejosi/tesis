@@ -195,7 +195,7 @@ namespace mhz19b {
         // configurar auto calibration (ABC)
         uint8_t cmd[9] = {
             0xFF, 0x01, 0x79,
-            current_config.auto_calibration ? 0xA0 : 0x00,
+            static_cast<uint8_t>(current_config.auto_calibration ? 0xA0 : 0x00),
             0x00, 0x00, 0x00, 0x00, 0x00
         };
 

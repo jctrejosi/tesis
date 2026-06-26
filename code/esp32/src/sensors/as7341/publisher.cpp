@@ -1,6 +1,8 @@
 #include "sensors/as7341/publisher.h"
 #include "mqtt/telemetry_publisher.h"
 #include <ArduinoJson.h>
+#include "mqtt/message_queue.h"
+#include <mqtt/client.h>
 
 namespace as7341 {
 
