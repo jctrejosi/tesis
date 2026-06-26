@@ -8,6 +8,7 @@ import * as schema from '../db/schema';
 
 type ActuatorCommandPayload = {
   state?: string;
+  channel?: number; // <-- agregado para relay
   [key: string]: unknown;
 };
 
@@ -49,7 +50,10 @@ export class ActuatorsController {
       type: 'object',
       properties: {
         command: { type: 'string', example: 'set' },
-        payload: { type: 'object', example: { state: 'on', speed: 80 } },
+        payload: {
+          type: 'object',
+          example: { state: 'ON', channel: 1, speed: 80 },
+        },
       },
     },
   })
@@ -57,37 +61,90 @@ export class ActuatorsController {
     @Param('name') name: string,
     @Body() body: { command: string; payload?: ActuatorCommandPayload },
   ) {
-    const actuator = await this.db.execute<{ type: string }>(sql`
-      SELECT type FROM actuators WHERE name = ${name} LIMIT 1
+    // 1. Obtener el actuador
+    const actuator = await this.db.execute<{
+      type: string;
+      state: Record<string, unknown> | null;
+      id: number;
+    }>(sql`
+      SELECT id, type, state FROM actuators WHERE name = ${name} LIMIT 1
     `);
     if (!actuator.rows.length) {
       return { error: 'Actuador no encontrado' };
     }
     const actuatorType = actuator.rows[0].type;
+    const actuatorId = actuator.rows[0].id;
+    const currentState: Record<string, unknown> = actuator.rows[0].state ?? {};
 
+    // 2. Validación especial para relay
+    if (actuatorType === 'relay' && body.command === 'set') {
+      const payload: ActuatorCommandPayload = body.payload ?? {};
+      if (
+        typeof payload.channel !== 'number' ||
+        payload.channel < 1 ||
+        payload.channel > 4
+      ) {
+        return { error: 'Para relay, el payload debe incluir channel (1-4)' };
+      }
+      if (
+        typeof payload.state !== 'string' ||
+        !['ON', 'OFF'].includes(payload.state)
+      ) {
+        return {
+          error: 'Para relay, el payload debe incluir state ("ON" o "OFF")',
+        };
+      }
+    }
+
+    // 3. Enviar comando MQTT
     this.mqttService.sendActuatorCommand(
       actuatorType,
       body.command,
       body.payload ?? {},
     );
 
-    if (body.command === 'set' && body.payload?.state) {
-      const oldState = await this.db.execute<{ state: unknown }>(sql`
-        SELECT state FROM actuators WHERE name = ${name} LIMIT 1
-      `);
+    // 4. Actualizar estado en la base de datos (solo si es comando 'set')
+    if (body.command === 'set' && body.payload) {
+      const payload = body.payload;
+
+      // Construir el nuevo estado respetando el tipo de actuador
+      let newState: Record<string, unknown>;
+
+      if (actuatorType === 'relay') {
+        // Para relay, actualizar solo el canal específico (channel_N)
+        const channelKey = `channel_${payload.channel}`;
+        newState = {
+          ...currentState,
+          [channelKey]: payload.state,
+        };
+      } else {
+        // Otros actuadores: guardar el payload completo (o un subconjunto)
+        // Aquí podrías personalizar según el tipo
+        newState = { ...payload };
+      }
+
+      // Guardar evento de cambio
       await this.db.execute(sql`
         INSERT INTO actuator_events (actuator_id, old_state, new_state, reason)
         VALUES (
-          (SELECT id FROM actuators WHERE name = ${name}),
-          ${oldState.rows[0]?.state || null}::jsonb,
-          ${JSON.stringify(body.payload)}::jsonb,
+          ${actuatorId},
+          ${JSON.stringify(currentState)}::jsonb,
+          ${JSON.stringify(newState)}::jsonb,
           'manual'
         )
       `);
+
+      // Actualizar estado del actuador
       await this.db.execute(sql`
-        UPDATE actuators SET state = ${JSON.stringify(body.payload)}::jsonb
-        WHERE name = ${name}
+        UPDATE actuators SET state = ${JSON.stringify(newState)}::jsonb
+        WHERE id = ${actuatorId}
       `);
+
+      return {
+        status: 'ok',
+        message: `Comando ${body.command} enviado a ${name}`,
+        new_state: newState,
+      };
     }
 
     return {
