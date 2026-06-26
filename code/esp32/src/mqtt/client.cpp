@@ -9,6 +9,8 @@
 #include "device_config.h"
 #include <ArduinoJson.h>
 #include <esp_timer.h>
+#include <actuators/relay/command_handler.h>
+#include <actuators/relay/publisher.h>
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -152,7 +154,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 }
 
 void publish_boot_message() {
-    StaticJsonDocument<JSON_OBJECT_SIZE(4)> doc;
+    JsonDocument doc;
     doc["device_id"]   = get_device_id();
     doc["status"]      = "boot";
     doc["boot_time"]   = (uint64_t)esp_timer_get_time();

@@ -5,7 +5,7 @@
 namespace as7341 {
 
     void Publisher::publish(const AS7341Data& data) {
-        StaticJsonDocument<JSON_OBJECT_SIZE(10)> doc;
+        JsonDocument doc;
         JsonObject metrics = doc.to<JsonObject>();
 
         metrics["f1_415nm"] = data.f1_415nm;
@@ -23,7 +23,7 @@ namespace as7341 {
     }
 
     void Publisher::publish_config(const Config& cfg) {
-        StaticJsonDocument<JSON_OBJECT_SIZE(7)> doc;
+        JsonDocument doc;
         doc["interval_ms"]      = cfg.interval_ms;
         doc["simulation"]       = cfg.simulation;
         doc["atime"]            = cfg.atime;

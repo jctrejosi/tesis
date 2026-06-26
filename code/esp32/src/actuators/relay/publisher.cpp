@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 
 #include "mqtt/client.h"
+#include <mqtt/message_queue.h>
 
 namespace relay {
 
@@ -19,7 +20,7 @@ namespace relay {
             return;
         }
 
-        StaticJsonDocument<JSON_OBJECT_SIZE(2)> doc;
+        JsonDocument doc;
         doc["channel"] = channel;
         doc["state"] = state_to_str(state);
 
@@ -54,7 +55,7 @@ namespace relay {
     void Publisher::publish_config(const Sensor& relay_sensor) {
         RelayConfig cfg = relay_sensor.get_config();
 
-        StaticJsonDocument<JSON_OBJECT_SIZE(8)> doc;
+        JsonDocument doc;
         doc["pin_in1"] = cfg.pin_in1;
         doc["pin_in2"] = cfg.pin_in2;
         doc["pin_in3"] = cfg.pin_in3;

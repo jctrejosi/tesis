@@ -8,7 +8,7 @@
 namespace bme680 {
 
     bool Publisher::publish(const BME680Data& data) {
-        StaticJsonDocument<JSON_OBJECT_SIZE(4)> doc;
+        JsonDocument doc;
         JsonObject metrics = doc.to<JsonObject>();
 
         metrics["temperature"]   = data.temperature;
@@ -25,7 +25,7 @@ namespace bme680 {
     }
 
     void Publisher::publish_config(const Config& cfg) {
-        StaticJsonDocument<JSON_OBJECT_SIZE(8)> doc;
+        JsonDocument doc;
         doc["interval_ms"]       = cfg.interval_ms;
         doc["simulation"]        = cfg.simulation;
         doc["temp_oversample"]   = cfg.temp_oversample;

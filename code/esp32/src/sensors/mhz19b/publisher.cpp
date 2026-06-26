@@ -12,7 +12,7 @@ namespace mhz19b {
             return;
         }
 
-        StaticJsonDocument<JSON_OBJECT_SIZE(1)> doc;
+        JsonDocument doc;
         JsonObject metrics = doc.to<JsonObject>();
         metrics["co2"] = data.co2_ppm;
 
@@ -20,7 +20,7 @@ namespace mhz19b {
     }
 
     void Publisher::publish_config(const Config& cfg) {
-        StaticJsonDocument<JSON_OBJECT_SIZE(3)> doc;
+        JsonDocument doc;
         doc["interval_ms"]      = cfg.interval_ms;
         doc["simulation"]       = cfg.simulation;
         doc["auto_calibration"] = cfg.auto_calibration;

@@ -24,7 +24,7 @@ void handle_read_command(const char* payload) {
 }
 
 void handle_set_command(const char* payload) {
-    StaticJsonDocument<JSON_OBJECT_SIZE(2)> doc;  // channel + state
+    JsonDocument doc;  // channel + state
     DeserializationError err = deserializeJson(doc, payload);
 
     if (err) {
@@ -55,7 +55,7 @@ void handle_set_command(const char* payload) {
 }
 
 void handle_config_command(const char* payload) {
-    StaticJsonDocument<JSON_OBJECT_SIZE(8)> doc;
+    JsonDocument doc;
     DeserializationError err = deserializeJson(doc, payload);
 
     if (err) {

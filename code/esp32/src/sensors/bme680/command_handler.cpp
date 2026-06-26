@@ -11,7 +11,7 @@ namespace bme680 {
     }
 
     void handle_config_command(const char* payload) {
-        StaticJsonDocument<JSON_OBJECT_SIZE(8)> doc;
+        JsonDocument doc;
         DeserializationError error = deserializeJson(doc, payload);
 
         if (error) {

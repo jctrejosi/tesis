@@ -17,7 +17,7 @@ namespace as7341 {
         const char* payload
     ) {
 
-        StaticJsonDocument<JSON_OBJECT_SIZE(7)> doc;
+        JsonDocument doc;
 
         DeserializationError error =
             deserializeJson(doc, payload);

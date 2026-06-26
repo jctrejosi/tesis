@@ -13,7 +13,7 @@ namespace soil_ec_rs485 {
             return;
         }
 
-        StaticJsonDocument<JSON_OBJECT_SIZE(2)> doc;
+        JsonDocument doc;
         JsonObject metrics = doc.to<JsonObject>();
         metrics["ec"] = data.ec_raw;
         if (!isnan(data.temperature)) {
@@ -26,7 +26,7 @@ namespace soil_ec_rs485 {
     }
 
     void Publisher::publish_config(const Config& cfg) {
-        StaticJsonDocument<JSON_OBJECT_SIZE(19)> doc;
+        JsonDocument doc;
         doc["interval_ms"]                = cfg.interval_ms;
         doc["simulation"]                 = cfg.simulation;
         doc["uart_port"]                  = cfg.uart_port;
