@@ -86,21 +86,23 @@ export class TelemetryService {
     // Caso 2: es número (microsegundos desde boot)
     if (typeof timestamp === 'number') {
       const boot = await this.db.execute(sql`
-        SELECT boot_time, server_time
-        FROM device_boots
-        WHERE device_id = ${deviceId}
-        ORDER BY server_time DESC
-        LIMIT 1
-      `);
+      SELECT boot_time, server_time
+      FROM device_boots
+      WHERE device_id = ${deviceId}
+      ORDER BY server_time DESC
+      LIMIT 1
+    `);
 
       if (boot.rows.length > 0) {
         const { boot_time, server_time } = boot.rows[0] as {
           boot_time: number;
           server_time: string;
         };
-        // Calcular: server_time + (timestamp - boot_time) / 1_000_000 segundos
-        const deltaSeconds = (timestamp - boot_time) / 1_000_000;
-        return `(${server_time}::timestamptz + interval '${deltaSeconds} seconds')`;
+        // Calcular la fecha real en JavaScript y devolver ISO string
+        const bootDate = new Date(server_time);
+        const deltaMs = (timestamp - boot_time) / 1000; // microsegundos a milisegundos
+        const realDate = new Date(bootDate.getTime() + deltaMs);
+        return realDate.toISOString();
       }
 
       // Si no hay boot registrado, usar now()

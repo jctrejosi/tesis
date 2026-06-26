@@ -72,7 +72,16 @@ bool reconnect_mqtt() {
     Serial.println("Connecting to MQTT...");
     if (client.connect("ESP32GrowBox", NULL, NULL, "growbox/status", 0, true, "offline")) {
         Serial.println("MQTT connected");
-        client.subscribe("growbox/#");
+
+        // Suscripciones específicas (solo comandos entrantes)
+        client.subscribe("growbox/+/read");
+        client.subscribe("growbox/+/config");
+        client.subscribe("growbox/+/read_config");
+        client.subscribe("growbox/relay/set");
+        client.subscribe("growbox/relay/read");
+        client.subscribe("growbox/relay/config");
+        client.subscribe("growbox/relay/read_config");
+
         // Publicar estado online
         client.publish("growbox/status", "online");
         return true;

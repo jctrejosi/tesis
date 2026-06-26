@@ -177,10 +177,10 @@ EXECUTE FUNCTION set_updated_at();
 -- convertir en hypertable
 SELECT create_hypertable('telemetry', 'time', if_not_exists => TRUE);
 
--- un mismo sample_id puede generar varias métricas,
--- pero no debe repetirse la misma métrica para la misma muestra
-CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_unique_sample_metric
-    ON telemetry (time, sample_id, device_id, sensor_id, metric_name);
+-- restricción UNIQUE para ON CONFLICT
+ALTER TABLE telemetry 
+    ADD CONSTRAINT uq_telemetry_sample_metric 
+    UNIQUE (time, sample_id, device_id, sensor_id, metric_name);
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_device_sensor_metric_time
     ON telemetry (device_id, sensor_id, metric_name, time DESC);

@@ -98,7 +98,20 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   private async handleStatusMessage(payload: Buffer) {
     try {
-      const msg = JSON.parse(payload.toString()) as {
+      const raw = payload.toString().trim();
+
+      // El LWT puede ser un string plano "offline" u "online"
+      if (raw === 'offline') {
+        this.logger.log('Device offline (LWT)');
+        return;
+      }
+      if (raw === 'online') {
+        this.logger.log('Device online');
+        return;
+      }
+
+      // Si no es string plano, es JSON
+      const msg = JSON.parse(raw) as {
         device_id?: number;
         status?: string;
         boot_time?: number;
