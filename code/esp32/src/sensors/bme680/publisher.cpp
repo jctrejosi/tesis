@@ -44,7 +44,7 @@ namespace bme680 {
 
         Serial.print("[BME680] publish config: ");
         Serial.println(buffer);
-        if (!publish_message("growbox/bme680/config", buffer, MessagePriority::HIGH)) {
+        if (!publish_message("growbox/bme680/config", buffer, MessagePriority::PRIORITY_HIGH)) {
             Serial.println("[BME680] error MQTT config");
         }
     }

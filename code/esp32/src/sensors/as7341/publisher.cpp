@@ -43,7 +43,7 @@ namespace as7341 {
 
         Serial.print("[AS7341] publish config: ");
         Serial.println(buffer);
-        if (!publish_message("growbox/as7341/config", buffer, MessagePriority::HIGH)) {
+        if (!publish_message("growbox/as7341/config", buffer, MessagePriority::PRIORITY_HIGH)) {
             Serial.println("[AS7341] error MQTT config");
         }
     }

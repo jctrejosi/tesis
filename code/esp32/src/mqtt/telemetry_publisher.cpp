@@ -27,5 +27,5 @@ void publish_telemetry(const char* sensor_alias, const JsonObject& metrics, cons
 
     char topic[64];
     snprintf(topic, sizeof(topic), "growbox/%s/data", sensor_alias);
-    publish_message(topic, payload, MessagePriority::LOW);
+    publish_message(topic, payload, MessagePriority::PRIORITY_LOW);
 }

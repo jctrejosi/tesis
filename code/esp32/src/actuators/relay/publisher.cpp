@@ -40,7 +40,7 @@ namespace relay {
         Serial.print(" -> ");
         Serial.println(buffer);
 
-        if (!publish_message(topic, buffer, MessagePriority::HIGH)) {
+        if (!publish_message(topic, buffer, MessagePriority::PRIORITY_HIGH)) {
             Serial.println("[RELAY] error MQTT publish");
         }
     }
@@ -75,7 +75,7 @@ namespace relay {
         static const char* topic = "growbox/relay/config";
         Serial.print("[RELAY] publish config: ");
         Serial.println(buffer);
-        if (!publish_message(topic, buffer, MessagePriority::HIGH)) {
+        if (!publish_message(topic, buffer, MessagePriority::PRIORITY_HIGH)) {
             Serial.println("[RELAY] error MQTT publish config");
         }
     }

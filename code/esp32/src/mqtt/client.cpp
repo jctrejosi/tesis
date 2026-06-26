@@ -164,7 +164,7 @@ void publish_boot_message() {
     serializeJson(doc, buffer);
 
     // Intentar publicar; si no hay WiFi todavía, se encolará automáticamente
-    publish_message("growbox/status", buffer, MessagePriority::HIGH);
+    publish_message("growbox/status", buffer, MessagePriority::PRIORITY_HIGH);
     Serial.print("[BOOT] ");
     Serial.println(buffer);
 }

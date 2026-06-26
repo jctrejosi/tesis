@@ -66,14 +66,14 @@ void handle_config_command(const char* payload) {
     Sensor& relay_sensor = get_relay_sensor();
     RelayConfig cfg = relay_sensor.get_config();
 
-    if (doc.containsKey("pin_in1")) cfg.pin_in1 = doc["pin_in1"];
-    if (doc.containsKey("pin_in2")) cfg.pin_in2 = doc["pin_in2"];
-    if (doc.containsKey("pin_in3")) cfg.pin_in3 = doc["pin_in3"];
-    if (doc.containsKey("pin_in4")) cfg.pin_in4 = doc["pin_in4"];
-    if (doc.containsKey("inverted")) cfg.inverted = doc["inverted"];
-    if (doc.containsKey("simulation")) cfg.simulation = doc["simulation"];
-    if (doc.containsKey("interval_ms")) cfg.interval_ms = doc["interval_ms"];
-    if (doc.containsKey("publish_interval_ms")) cfg.publish_interval_ms = doc["publish_interval_ms"];
+    if (!doc["pin_in1"].isNull())  cfg.pin_in1  = doc["pin_in1"];
+    if (!doc["pin_in2"].isNull())  cfg.pin_in2  = doc["pin_in2"];
+    if (!doc["pin_in3"].isNull())  cfg.pin_in3  = doc["pin_in3"];
+    if (!doc["pin_in4"].isNull())  cfg.pin_in4  = doc["pin_in4"];
+    if (!doc["inverted"].isNull()) cfg.inverted = doc["inverted"];
+    if (!doc["simulation"].isNull()) cfg.simulation = doc["simulation"];
+    if (!doc["interval_ms"].isNull()) cfg.interval_ms = doc["interval_ms"];
+    if (!doc["publish_interval_ms"].isNull()) cfg.publish_interval_ms = doc["publish_interval_ms"];
 
     if (!validate_config(cfg)) {
         Serial.println("[RELAY] config inválida");

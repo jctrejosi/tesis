@@ -58,7 +58,7 @@ namespace soil_ec_rs485 {
 
         Serial.print("[SOIL_EC_RS485] publish config: ");
         Serial.println(buffer);
-        if (!publish_message("growbox/soil_ec_rs485/config", buffer, MessagePriority::HIGH)) {
+        if (!publish_message("growbox/soil_ec_rs485/config", buffer, MessagePriority::PRIORITY_HIGH)) {
             Serial.println("[SOIL_EC_RS485] error MQTT config");
         }
     }

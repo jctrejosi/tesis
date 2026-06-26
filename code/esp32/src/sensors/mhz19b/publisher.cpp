@@ -34,7 +34,7 @@ namespace mhz19b {
 
         Serial.print("[MHZ19B] publish config: ");
         Serial.println(buffer);
-        if (!publish_message("growbox/mhz19b/config", buffer, MessagePriority::HIGH)) {
+        if (!publish_message("growbox/mhz19b/config", buffer, MessagePriority::PRIORITY_HIGH)) {
             Serial.println("[MHZ19B] error MQTT config");
         }
     }
