@@ -163,59 +163,79 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
    * Si la configuración es diferente a la última guardada, inserta una nueva versión.
    */
   private async handleConfigResponse(
-    sensorAlias: string,
-    config: Record<string, any>,
+    alias: string,
+    config: Record<string, unknown>,
   ) {
     try {
-      // Buscar sensor por alias
+      // 1. Intentar como sensor
       const sensor = await this.db.execute<{ id: number }>(sql`
-        SELECT id FROM sensors WHERE alias = ${sensorAlias} LIMIT 1
-      `);
-      if (!sensor.rows.length) {
-        this.logger.warn(
-          `Sensor con alias '${sensorAlias}' no encontrado para guardar config`,
-        );
-        return;
-      }
-      const sensorId = sensor.rows[0].id;
-
-      // Obtener la última configuración guardada
-      const latest = await this.db.execute<{
-        config: any;
-        version: number;
-      }>(sql`
+      SELECT id FROM sensors WHERE alias = ${alias} LIMIT 1
+    `);
+      if (sensor.rows.length) {
+        const sensorId = sensor.rows[0].id;
+        const latest = await this.db.execute<{
+          config: any;
+          version: number;
+        }>(sql`
         SELECT config, version
         FROM sensor_configs
         WHERE sensor_id = ${sensorId}
         ORDER BY version DESC
         LIMIT 1
       `);
-
-      const newConfigStr = JSON.stringify(config);
-
-      if (latest.rows.length > 0) {
-        const currentConfigStr = JSON.stringify(latest.rows[0].config);
-        if (currentConfigStr === newConfigStr) {
-          this.logger.debug(
-            `Config de ${sensorAlias} sin cambios, no se actualiza`,
-          );
+        const newConfigStr = JSON.stringify(config);
+        if (
+          latest.rows.length > 0 &&
+          JSON.stringify(latest.rows[0].config) === newConfigStr
+        ) {
+          this.logger.debug(`Config de sensor ${alias} sin cambios`);
           return;
         }
-      }
-
-      // Insertar nueva versión
-      const newVersion =
-        latest.rows.length > 0 ? latest.rows[0].version + 1 : 1;
-      await this.db.execute(sql`
+        const newVersion = latest.rows.length ? latest.rows[0].version + 1 : 1;
+        await this.db.execute(sql`
         INSERT INTO sensor_configs (sensor_id, config, version)
         VALUES (${sensorId}, ${newConfigStr}::jsonb, ${newVersion})
       `);
+        this.logger.log(`Configuración de sensor ${alias} v${newVersion}`);
+        return;
+      }
 
-      this.logger.log(
-        `Configuración de ${sensorAlias} actualizada a v${newVersion}`,
-      );
+      // 2. Intentar como actuador (la alias será el tipo, ej. 'relay')
+      const actuator = await this.db.execute<{ id: number }>(sql`
+      SELECT id FROM actuators WHERE type = ${alias} LIMIT 1
+    `);
+      if (actuator.rows.length) {
+        const actuatorId = actuator.rows[0].id;
+        const latest = await this.db.execute<{
+          config: any;
+          version: number;
+        }>(sql`
+        SELECT config, version
+        FROM actuator_configs
+        WHERE actuator_id = ${actuatorId}
+        ORDER BY version DESC
+        LIMIT 1
+      `);
+        const newConfigStr = JSON.stringify(config);
+        if (
+          latest.rows.length > 0 &&
+          JSON.stringify(latest.rows[0].config) === newConfigStr
+        ) {
+          this.logger.debug(`Config de actuador ${alias} sin cambios`);
+          return;
+        }
+        const newVersion = latest.rows.length ? latest.rows[0].version + 1 : 1;
+        await this.db.execute(sql`
+        INSERT INTO actuator_configs (actuator_id, config, version)
+        VALUES (${actuatorId}, ${newConfigStr}::jsonb, ${newVersion})
+      `);
+        this.logger.log(`Configuración de actuador ${alias} v${newVersion}`);
+        return;
+      }
+
+      this.logger.warn(`Destinatario de config desconocido: ${alias}`);
     } catch (err) {
-      this.logger.error(`Error al guardar config de ${sensorAlias}`, err);
+      this.logger.error(`Error al guardar config de ${alias}`, err);
     }
   }
 
