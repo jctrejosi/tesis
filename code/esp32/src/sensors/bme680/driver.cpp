@@ -64,14 +64,14 @@ namespace bme680 {
             return true;
         }
 
-        Wire.begin(BME680_SDA_PIN, BME680_SCL_PIN);
+        // NO llamar a Wire.begin() - ya está inicializado globalmente
 
         if (!bme.begin(BME680_I2C_ADDRESS)) {
             Serial.println("Error: no se encontró BME680 en I2C, activando simulación");
             simulation_mode = true;
             current_config.simulation = true;
             hardware_ready = false;
-            return true;   // seguir adelante con datos simulados
+            return true;
         }
 
         hardware_ready = true;
@@ -86,13 +86,17 @@ namespace bme680 {
         current_config.simulation = enabled;
 
         if (enabled) {
-            if (hardware_ready) {
-                hardware_ready = false;
-            }
+            // Al entrar en simulación, marcamos hardware como no listo
+            // pero NO tocamos Wire (el bus sigue activo para otros sensores)
+            hardware_ready = false;
         } else {
+            // Al salir de simulación, el bus I2C ya está inicializado globalmente
             if (bme.begin(BME680_I2C_ADDRESS)) {
                 hardware_ready = true;
                 apply_hardware_config();
+            } else {
+                Serial.println("[BME680] sensor no responde al salir de simulación");
+                hardware_ready = false;
             }
         }
     }

@@ -55,7 +55,7 @@ void handle_set_command(const char* payload) {
 }
 
 void handle_config_command(const char* payload) {
-    StaticJsonDocument<JSON_OBJECT_SIZE(8)> doc; // 7 campos de RelayConfig
+    StaticJsonDocument<JSON_OBJECT_SIZE(8)> doc;
     DeserializationError err = deserializeJson(doc, payload);
 
     if (err) {

@@ -7,6 +7,13 @@
 #define TOPIC_MAX_LEN  64
 #define PAYLOAD_MAX_LEN 256
 
+#ifdef LOW
+#undef LOW
+#endif
+#ifdef HIGH
+#undef HIGH
+#endif
+
 enum class MessagePriority { LOW, HIGH };
 
 struct QueuedMessage {
@@ -17,7 +24,7 @@ struct QueuedMessage {
 
 class MessageQueue {
 public:
-    bool push(const char* topic, const char* payload, MessagePriority priority = MessagePriority::LOW);
+    void push(const char* topic, const char* payload, MessagePriority priority = MessagePriority::LOW);
     bool pop(QueuedMessage& msg);
     bool is_empty() const;
 

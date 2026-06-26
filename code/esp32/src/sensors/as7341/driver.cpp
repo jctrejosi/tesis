@@ -85,22 +85,16 @@ namespace as7341 {
     }
 
     bool AS7341Driver::begin() {
-
         randomSeed(millis());
 
         if (simulation_mode) {
-
             hardware_ready = false;
             return true;
         }
 
-        Wire.begin(
-            AS7341_SDA_PIN,
-            AS7341_SCL_PIN
-        );
+        // NO llamar a Wire.begin() - ya está inicializado globalmente
 
         if (!sensor.begin()) {
-
             Serial.println("[AS7341] sensor no detectado, activando simulación");
             simulation_mode = true;
             current_config.simulation = true;
@@ -109,13 +103,9 @@ namespace as7341 {
         }
 
         hardware_ready = true;
-
         apply_hardware_config();
 
-        Serial.println(
-            "[AS7341] inicializado"
-        );
-
+        Serial.println("[AS7341] inicializado");
         return true;
     }
 
@@ -125,13 +115,18 @@ namespace as7341 {
         current_config.simulation = enabled;
 
         if (enabled) {
-            if (hardware_ready) {
-                hardware_ready = false;
-            }
+            // Al entrar en simulación, marcamos hardware como no listo
+            // pero NO tocamos Wire (el bus sigue activo para otros sensores)
+            hardware_ready = false;
         } else {
+            // Al salir de simulación, el bus I2C ya está inicializado globalmente
+            // Solo verificamos que el sensor responde y aplicamos configuración
             if (sensor.begin()) {
                 hardware_ready = true;
                 apply_hardware_config();
+            } else {
+                Serial.println("[AS7341] sensor no responde al salir de simulación");
+                hardware_ready = false;
             }
         }
     }
