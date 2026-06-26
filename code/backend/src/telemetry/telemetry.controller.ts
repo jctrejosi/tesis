@@ -7,6 +7,14 @@ import { TelemetryService } from './telemetry.service';
 export class TelemetryController {
   constructor(private readonly telemetryService: TelemetryService) {}
 
+  @Get(':alias/readings')
+  @ApiOperation({ summary: 'Últimas N lecturas agrupadas del sensor' })
+  @ApiParam({ name: 'alias', example: 'as7341' })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  getReadings(@Param('alias') alias: string, @Query('limit') limit = 10) {
+    return this.telemetryService.getReadings(alias, +limit);
+  }
+
   @Get(':alias/latest')
   @ApiOperation({
     summary: 'Últimas N lecturas de un sensor (todas las métricas)',

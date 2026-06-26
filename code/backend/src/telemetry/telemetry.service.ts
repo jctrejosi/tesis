@@ -216,4 +216,47 @@ export class TelemetryService {
   `);
     return result.rows.length ? (result.rows[0].id as number) : null;
   }
+
+  async getReadings(sensorAlias: string, limit = 10) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+
+    const result = await this.db.execute(sql`
+    WITH last_samples AS (
+      SELECT sample_id, MAX(time) AS time
+      FROM telemetry
+      WHERE sensor_id = ${sensorId}
+      GROUP BY sample_id
+      ORDER BY time DESC
+      LIMIT ${limit}
+    )
+    SELECT t.time, t.metric_name, t.value, t.sample_id
+    FROM telemetry t
+    JOIN last_samples s ON t.sample_id = s.sample_id
+    WHERE t.sensor_id = ${sensorId}
+    ORDER BY t.time DESC, t.metric_name
+  `);
+
+    // Agrupar por sample_id
+    const readings = new Map<
+      string,
+      { time: string; metrics: Record<string, number> }
+    >();
+
+    for (const row of result.rows) {
+      const r = row as {
+        time: string;
+        sample_id: string;
+        metric_name: string;
+        value: number;
+      };
+      const { time, sample_id, metric_name, value } = r;
+      if (!readings.has(sample_id)) {
+        readings.set(sample_id, { time, metrics: {} });
+      }
+      readings.get(sample_id)!.metrics[metric_name] = value;
+    }
+
+    return Array.from(readings.values());
+  }
 }
