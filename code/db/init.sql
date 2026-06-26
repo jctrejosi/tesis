@@ -146,6 +146,34 @@ CREATE TABLE IF NOT EXISTS telemetry (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ================================================================
+-- dominio: configuraciones de actuadores
+-- misma lógica que sensor_configs pero para actuadores
+-- ================================================================
+
+CREATE TABLE IF NOT EXISTS actuator_configs (
+    id            BIGSERIAL PRIMARY KEY,
+    actuator_id   BIGINT NOT NULL REFERENCES actuators(id) ON DELETE CASCADE,
+    config        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    version       INT NOT NULL DEFAULT 1,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_actuator_configs_actuator_id
+    ON actuator_configs(actuator_id);
+
+CREATE INDEX IF NOT EXISTS idx_actuator_configs_updated_at
+    ON actuator_configs(updated_at DESC);
+
+-- trigger para mantener updated_at automáticamente
+DROP TRIGGER IF EXISTS trg_actuator_configs_updated_at ON actuator_configs;
+
+CREATE TRIGGER trg_actuator_configs_updated_at
+BEFORE UPDATE ON actuator_configs
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
 -- convertir en hypertable
 SELECT create_hypertable('telemetry', 'time', if_not_exists => TRUE);
 
