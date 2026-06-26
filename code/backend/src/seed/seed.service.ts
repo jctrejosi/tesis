@@ -59,10 +59,22 @@ export class SeedService implements OnModuleInit {
 
     // Actuadores de ejemplo
     const actuadores = [
-      { name: 'relay_principal', type: 'relay' },
-      { name: 'ventilacion_principal', type: 'fan' },
-      { name: 'iluminacion_principal', type: 'light' },
-      { name: 'riego_principal', type: 'pump' },
+      {
+        name: 'canal_1',
+        type: 'relay',
+        metadata: { descripcion: 'Ventilación principal' },
+      },
+      {
+        name: 'canal_2',
+        type: 'relay',
+        metadata: { descripcion: 'Iluminación principal' },
+      },
+      {
+        name: 'canal_3',
+        type: 'relay',
+        metadata: { descripcion: 'Riego principal' },
+      },
+      { name: 'canal_4', type: 'relay', metadata: { descripcion: 'Libre' } },
     ];
 
     for (const a of actuadores) {

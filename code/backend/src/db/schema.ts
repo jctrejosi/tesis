@@ -126,3 +126,14 @@ export const telemetry = pgTable('telemetry', {
   rawPayload: jsonb('raw_payload'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
+
+export const actuatorConfigs = pgTable('actuator_configs', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  actuatorId: bigint('actuator_id', { mode: 'number' })
+    .notNull()
+    .references(() => actuators.id, { onDelete: 'cascade' }),
+  config: jsonb('config').default({}),
+  version: integer('version').default(1),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});

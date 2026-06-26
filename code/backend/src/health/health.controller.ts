@@ -4,15 +4,17 @@ import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../db/schema';
 import { sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { MqttService } from '../mqtt/mqtt.service';
 
 @Controller('health')
 export class HealthController implements OnModuleInit {
-  constructor(@Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>) {}
+  constructor(
+    @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
+    private readonly mqttService: MqttService, // Inyección del servicio MQTT
+  ) {}
 
-  // Cuando el módulo se inicia, intentamos insertar una telemetría de prueba
   async onModuleInit() {
     try {
-      // Insertar un dato de prueba en telemetry
       const sampleId = uuidv4();
       await this.db.execute(sql`
         INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value)
@@ -30,9 +32,20 @@ export class HealthController implements OnModuleInit {
 
   @Get()
   async check() {
-    // Ejecuta una consulta simple para verificar que todo funcione
-    const result = await this.db.execute(sql`SELECT 1 as ok`);
-    return { status: 'ok', db: result.rows[0] };
+    // Verificar BD
+    const dbResult = await this.db.execute(sql`SELECT 1 as ok`);
+    const dbStatus = dbResult.rows[0]?.ok === 1 ? 'connected' : 'error';
+
+    // Verificar MQTT
+    const mqttStatus = this.mqttService.isConnected()
+      ? 'connected'
+      : 'disconnected';
+
+    return {
+      status: 'ok',
+      database: dbStatus,
+      mqtt: mqttStatus,
+    };
   }
 
   @Get('telemetry-count')
@@ -41,5 +54,14 @@ export class HealthController implements OnModuleInit {
       SELECT count(*) FROM telemetry
     `);
     return { telemetry_rows: count.rows[0].count };
+  }
+
+  @Get('mqtt')
+  mqttHealth() {
+    const connected = this.mqttService.isConnected();
+    return {
+      mqtt: connected ? 'connected' : 'disconnected',
+      broker: process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883',
+    };
   }
 }

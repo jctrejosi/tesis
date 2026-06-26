@@ -85,4 +85,69 @@ export class ConfigController {
     this.mqttService.requestSensorRead(alias);
     return { status: 'ok', message: `Comando READ enviado a ${alias}` };
   }
+
+  @Get('actuators/:name')
+  @ApiOperation({
+    summary: 'Obtener la última configuración guardada de un actuador',
+  })
+  @ApiParam({ name: 'name', example: 'relay_principal' })
+  async getActuatorConfig(@Param('name') name: string) {
+    const actuator = await this.db.execute<{ id: number; type: string }>(sql`
+    SELECT id, type FROM actuators WHERE name = ${name} LIMIT 1
+  `);
+    if (!actuator.rows.length) {
+      return { error: 'Actuador no encontrado' };
+    }
+    const result = await this.db.execute(sql`
+    SELECT config, version, updated_at
+    FROM actuator_configs
+    WHERE actuator_id = ${actuator.rows[0].id}
+    ORDER BY version DESC
+    LIMIT 1
+  `);
+    return result.rows[0] || { config: {}, version: 0 };
+  }
+
+  @Put('actuators/:name')
+  @ApiOperation({
+    summary: 'Guardar y enviar configuración a un actuador vía MQTT',
+  })
+  @ApiParam({ name: 'name', example: 'relay_principal' })
+  @ApiBody({ description: 'Configuración en formato JSON', type: Object })
+  async updateActuatorConfig(
+    @Param('name') name: string,
+    @Body() config: Record<string, any>,
+  ) {
+    const actuator = await this.db.execute<{ id: number; type: string }>(sql`
+    SELECT id, type FROM actuators WHERE name = ${name} LIMIT 1
+  `);
+    if (!actuator.rows.length) {
+      return { error: 'Actuador no encontrado' };
+    }
+
+    const actuatorType = actuator.rows[0].type;
+    const actuatorId = actuator.rows[0].id;
+
+    // Guardar nueva versión en BD (opcional, el ESP32 confirmará y se sobrescribirá)
+    const currentVersion = await this.db.execute(sql`
+    SELECT COALESCE(MAX(version), 0) as max_version
+    FROM actuator_configs
+    WHERE actuator_id = ${actuatorId}
+  `);
+    const newVersion = Number(currentVersion.rows[0].max_version) + 1;
+
+    await this.db.execute(sql`
+    INSERT INTO actuator_configs (actuator_id, config, version)
+    VALUES (${actuatorId}, ${JSON.stringify(config)}::jsonb, ${newVersion})
+  `);
+
+    // Enviar al ESP32 por MQTT usando el comando 'config'
+    this.mqttService.sendActuatorCommand(actuatorType, 'config', config);
+
+    return {
+      status: 'ok',
+      message: `Configuración v${newVersion} enviada a ${name}`,
+      version: newVersion,
+    };
+  }
 }

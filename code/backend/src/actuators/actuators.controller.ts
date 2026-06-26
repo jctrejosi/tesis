@@ -111,15 +111,9 @@ export class ActuatorsController {
       let newState: Record<string, unknown>;
 
       if (actuatorType === 'relay') {
-        // Para relay, actualizar solo el canal específico (channel_N)
-        const channelKey = `channel_${payload.channel}`;
-        newState = {
-          ...currentState,
-          [channelKey]: payload.state,
-        };
+        // Estado simple para un actuador que representa un solo canal
+        newState = { state: payload.state };
       } else {
-        // Otros actuadores: guardar el payload completo (o un subconjunto)
-        // Aquí podrías personalizar según el tipo
         newState = { ...payload };
       }
 

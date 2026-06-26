@@ -25,6 +25,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
   ) {}
 
+  isConnected(): boolean {
+    return this.client?.connected ?? false;
+  }
+
   onModuleInit() {
     const brokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
     const clientId = process.env.MQTT_CLIENT_ID || 'cea_backend';
@@ -245,39 +249,40 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const actuator = await this.db.execute(sql`
-      SELECT id, state FROM actuators WHERE name = 'relay_principal' AND type = 'relay' LIMIT 1
-    `);
+    const actuator = await this.db.execute<{ id: number; state: unknown }>(sql`
+    SELECT id, state FROM actuators
+    WHERE name = ${`canal_${channel}`} AND type = 'relay' LIMIT 1
+  `);
 
     if (!actuator.rows.length) {
-      this.logger.warn('Actuador relay_principal no encontrado');
+      this.logger.warn(`Actuador canal_${channel} no encontrado`);
       return;
     }
 
-    const actuatorId = actuator.rows[0].id as number;
+    const actuatorId = actuator.rows[0].id;
     const currentState = (actuator.rows[0].state as Record<string, any>) || {};
 
-    const newState = {
-      ...currentState,
-      [`channel_${channel}`]: state,
-    };
+    // Estado simple para un solo canal
+    const newState = { state };
 
     await this.db.execute(sql`
-      UPDATE actuators SET state = ${JSON.stringify(newState)}::jsonb
-      WHERE id = ${actuatorId}
-    `);
+    UPDATE actuators SET state = ${JSON.stringify(newState)}::jsonb
+    WHERE id = ${actuatorId}
+  `);
 
     await this.db.execute(sql`
-      INSERT INTO actuator_events (actuator_id, old_state, new_state, reason)
-      VALUES (
-        ${actuatorId},
-        ${JSON.stringify(currentState)}::jsonb,
-        ${JSON.stringify(newState)}::jsonb,
-        'mqtt_state_update'
-      )
-    `);
+    INSERT INTO actuator_events (actuator_id, old_state, new_state, reason)
+    VALUES (
+      ${actuatorId},
+      ${JSON.stringify(currentState)}::jsonb,
+      ${JSON.stringify(newState)}::jsonb,
+      'mqtt_state_update'
+    )
+  `);
 
-    this.logger.log(`Relé canal ${channel} actualizado a ${state}`);
+    this.logger.log(
+      `Relé canal ${channel} (canal_${channel}) actualizado a ${state}`,
+    );
   }
 
   publish(topic: string, payload: string): boolean {
