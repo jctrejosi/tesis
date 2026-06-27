@@ -194,6 +194,17 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_metric_time
 CREATE INDEX IF NOT EXISTS idx_telemetry_sample_id
     ON telemetry (sample_id);
 
+CREATE TABLE IF NOT EXISTS sensor_analytics (
+    time        TIMESTAMPTZ NOT NULL,
+    sample_id   UUID NOT NULL,
+    sensor_id   BIGINT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+    metric_name TEXT NOT NULL,
+    value       DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (time, sample_id, sensor_id, metric_name)
+);
+
+SELECT create_hypertable('sensor_analytics', 'time', if_not_exists => TRUE);
+
 -- ================================================================
 -- compresión y retención
 -- ================================================================

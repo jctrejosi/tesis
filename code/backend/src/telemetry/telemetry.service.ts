@@ -1,9 +1,14 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { sql } from 'drizzle-orm';
-import { v4 as uuidv4 } from 'uuid';
+import { sql, SQL } from 'drizzle-orm';
+import * as crypto from 'crypto';
 import { DRIZZLE } from '../db/database.module';
 import * as schema from '../db/schema';
+import { AnalyticsService } from '../analytics/analytics.service';
 
 export interface TelemetryMessage {
   device_id: number;
@@ -15,26 +20,26 @@ export interface TelemetryMessage {
 export class TelemetryService {
   private readonly logger = new Logger(TelemetryService.name);
 
-  constructor(@Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>) {}
+  constructor(
+    @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
+    private readonly analyticsService: AnalyticsService,
+  ) {}
 
   async ingest(sensorAlias: string, message: TelemetryMessage) {
     const { device_id, timestamp, metrics } = message;
 
     // 1. Buscar el sensor
-    const sensor = await this.db.execute(sql`
-      SELECT id FROM sensors WHERE alias = ${sensorAlias} LIMIT 1
-    `);
-    if (!sensor.rows.length) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) {
       this.logger.warn(`Sensor no encontrado para alias: ${sensorAlias}`);
       return;
     }
-    const sensorId = sensor.rows[0].id as number;
 
     // 2. Calcular el timestamp real
     const realTime = await this.resolveTimestamp(device_id, timestamp);
 
     // 3. Generar sample_id común para todas las métricas
-    const sampleId = uuidv4();
+    const sampleId = crypto.randomUUID();
 
     // 4. Payload completo (opcional)
     const rawPayload = JSON.stringify(message);
@@ -66,91 +71,83 @@ export class TelemetryService {
     } catch (err) {
       this.logger.error('Error al insertar telemetría', err);
     }
+
+    // 6. Procesar datos derivados
+    await this.analyticsService.processSensorData(
+      sensorAlias,
+      sensorId,
+      sampleId,
+      realTime,
+      metrics,
+    );
   }
 
-  /**
-   * Convierte el timestamp del ESP32 (microsegundos desde boot) a una fecha real.
-   * - Si es string ISO8601: se usa directamente.
-   * - Si es número: busca el último boot del dispositivo y calcula la fecha real.
-   * - Si es null/undefined: se usa now().
-   */
   private async resolveTimestamp(
     deviceId: number,
     timestamp: string | number | null | undefined,
   ): Promise<string> {
-    // Caso 1: ya es string ISO8601
     if (typeof timestamp === 'string') {
       return timestamp;
     }
 
-    // Caso 2: es número (microsegundos desde boot)
     if (typeof timestamp === 'number') {
-      const boot = await this.db.execute(sql`
-      SELECT boot_time, server_time
-      FROM device_boots
-      WHERE device_id = ${deviceId}
-      ORDER BY server_time DESC
-      LIMIT 1
-    `);
+      const boots = await this.query<{
+        boot_time: number;
+        server_time: string;
+      }>(sql`
+        SELECT boot_time, server_time
+        FROM device_boots
+        WHERE device_id = ${deviceId}
+        ORDER BY server_time DESC
+        LIMIT 1
+      `);
 
-      if (boot.rows.length > 0) {
-        const { boot_time, server_time } = boot.rows[0] as {
-          boot_time: number;
-          server_time: string;
-        };
-        // Calcular la fecha real en JavaScript y devolver ISO string
+      if (boots.length > 0) {
+        const { boot_time, server_time } = boots[0];
         const bootDate = new Date(server_time);
-        const deltaMs = (timestamp - boot_time) / 1000; // microsegundos a milisegundos
+        const deltaMs = (timestamp - boot_time) / 1000;
         const realDate = new Date(bootDate.getTime() + deltaMs);
         return realDate.toISOString();
       }
 
-      // Si no hay boot registrado, usar now()
       this.logger.warn(
         `No hay boot registrado para device ${deviceId}, usando now()`,
       );
       return new Date().toISOString();
     }
 
-    // Caso 3: null/undefined → usar now()
     return new Date().toISOString();
   }
 
-  // Método para obtener las últimas lecturas de un sensor (para debug)
   async getLatest(sensorAlias: string, limit = 10) {
-    const sensor = await this.db.execute(sql`
-      SELECT id FROM sensors WHERE alias = ${sensorAlias} LIMIT 1
-    `);
-    if (!sensor.rows.length) return [];
-    const sensorId = sensor.rows[0].id as number;
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
 
-    const result = await this.db.execute(sql`
+    return this.query<{ time: string; metric_name: string; value: number }>(sql`
       SELECT time, metric_name, value
       FROM telemetry
       WHERE sensor_id = ${sensorId}
       ORDER BY time DESC
       LIMIT ${limit}
     `);
-    return result.rows;
   }
 
-  // Obtener último valor de cada métrica de un sensor (ventana 1 hora)
   async getCurrentValues(sensorAlias: string) {
     const sensorId = await this.getSensorId(sensorAlias);
     if (!sensorId) return [];
-    return this.db.execute(sql`
-    SELECT DISTINCT ON (metric_name) 
-      metric_name, 
-      value, 
-      time
-    FROM telemetry
-    WHERE sensor_id = ${sensorId}
-      AND time > now() - interval '1 hour'
-    ORDER BY metric_name, time DESC
-  `);
+
+    return this.query<{ metric_name: string; value: number; time: string }>(sql`
+      SELECT DISTINCT ON (metric_name) 
+        metric_name, 
+        value, 
+        time
+      FROM telemetry
+      WHERE sensor_id = ${sensorId}
+        AND time > now() - interval '1 hour'
+      ORDER BY metric_name, time DESC
+    `);
   }
 
-  // Lecturas de una métrica en rango de tiempo
   async getByTimeRange(
     sensorAlias: string,
     metricName: string,
@@ -160,18 +157,18 @@ export class TelemetryService {
   ) {
     const sensorId = await this.getSensorId(sensorAlias);
     if (!sensorId) return [];
-    return this.db.execute(sql`
-    SELECT time, value
-    FROM telemetry
-    WHERE sensor_id = ${sensorId}
-      AND metric_name = ${metricName}
-      AND time BETWEEN ${start}::timestamptz AND ${end}::timestamptz
-    ORDER BY time DESC
-    LIMIT ${limit}
-  `);
+
+    return this.query<{ time: string; value: number }>(sql`
+      SELECT time, value
+      FROM telemetry
+      WHERE sensor_id = ${sensorId}
+        AND metric_name = ${metricName}
+        AND time BETWEEN ${start}::timestamptz AND ${end}::timestamptz
+      ORDER BY time DESC
+      LIMIT ${limit}
+    `);
   }
 
-  // Datos agregados por hora o día
   async getAggregated(
     sensorAlias: string,
     metricName: string,
@@ -181,76 +178,73 @@ export class TelemetryService {
   ) {
     const sensorId = await this.getSensorId(sensorAlias);
     if (!sensorId) return [];
-    return this.db.execute(sql`
-    SELECT 
-      time_bucket(${bucket}::interval, time) AS bucket,
-      avg(value) as avg_value,
-      min(value) as min_value,
-      max(value) as max_value,
-      count(*) as samples
-    FROM telemetry
-    WHERE sensor_id = ${sensorId}
-      AND metric_name = ${metricName}
-      AND time BETWEEN ${start}::timestamptz AND ${end}::timestamptz
-    GROUP BY bucket
-    ORDER BY bucket DESC
-  `);
+
+    return this.query<{
+      bucket: string;
+      avg_value: number;
+      min_value: number;
+      max_value: number;
+      samples: number;
+    }>(sql`
+      SELECT 
+        time_bucket(${bucket}::interval, time) AS bucket,
+        avg(value) as avg_value,
+        min(value) as min_value,
+        max(value) as max_value,
+        count(*) as samples
+      FROM telemetry
+      WHERE sensor_id = ${sensorId}
+        AND metric_name = ${metricName}
+        AND time BETWEEN ${start}::timestamptz AND ${end}::timestamptz
+      GROUP BY bucket
+      ORDER BY bucket DESC
+    `);
   }
 
-  // Listar métricas disponibles para un sensor
   async getAvailableMetrics(sensorAlias: string) {
     const sensorId = await this.getSensorId(sensorAlias);
     if (!sensorId) return [];
-    return this.db.execute(sql`
-    SELECT DISTINCT metric_name
-    FROM telemetry
-    WHERE sensor_id = ${sensorId}
-    ORDER BY metric_name
-  `);
-  }
 
-  // Helper privado
-  private async getSensorId(alias: string): Promise<number | null> {
-    const result = await this.db.execute(sql`
-    SELECT id FROM sensors WHERE alias = ${alias} LIMIT 1
-  `);
-    return result.rows.length ? (result.rows[0].id as number) : null;
+    return this.query<{ metric_name: string }>(sql`
+      SELECT DISTINCT metric_name
+      FROM telemetry
+      WHERE sensor_id = ${sensorId}
+      ORDER BY metric_name
+    `);
   }
 
   async getReadings(sensorAlias: string, limit = 10) {
     const sensorId = await this.getSensorId(sensorAlias);
     if (!sensorId) return [];
 
-    const result = await this.db.execute(sql`
-    WITH last_samples AS (
-      SELECT sample_id, MAX(time) AS time
-      FROM telemetry
-      WHERE sensor_id = ${sensorId}
-      GROUP BY sample_id
-      ORDER BY time DESC
-      LIMIT ${limit}
-    )
-    SELECT t.time, t.metric_name, t.value, t.sample_id
-    FROM telemetry t
-    JOIN last_samples s ON t.sample_id = s.sample_id
-    WHERE t.sensor_id = ${sensorId}
-    ORDER BY t.time DESC, t.metric_name
-  `);
+    const rows = await this.query<{
+      time: string;
+      metric_name: string;
+      value: number;
+      sample_id: string;
+    }>(sql`
+      WITH last_samples AS (
+        SELECT sample_id, MAX(time) AS time
+        FROM telemetry
+        WHERE sensor_id = ${sensorId}
+        GROUP BY sample_id
+        ORDER BY time DESC
+        LIMIT ${limit}
+      )
+      SELECT t.time, t.metric_name, t.value, t.sample_id
+      FROM telemetry t
+      JOIN last_samples s ON t.sample_id = s.sample_id
+      WHERE t.sensor_id = ${sensorId}
+      ORDER BY t.time DESC, t.metric_name
+    `);
 
-    // Agrupar por sample_id
     const readings = new Map<
       string,
       { time: string; metrics: Record<string, number> }
     >();
 
-    for (const row of result.rows) {
-      const r = row as {
-        time: string;
-        sample_id: string;
-        metric_name: string;
-        value: number;
-      };
-      const { time, sample_id, metric_name, value } = r;
+    for (const row of rows) {
+      const { time, sample_id, metric_name, value } = row;
       if (!readings.has(sample_id)) {
         readings.set(sample_id, { time, metrics: {} });
       }
@@ -258,5 +252,27 @@ export class TelemetryService {
     }
 
     return Array.from(readings.values());
+  }
+
+  // Helpers privados
+
+  private async getSensorId(alias: string): Promise<number | null> {
+    const rows = await this.query<{ id: number }>(sql`
+      SELECT id FROM sensors WHERE alias = ${alias} LIMIT 1
+    `);
+    return rows.length ? rows[0].id : null;
+  }
+
+  private async query<T>(query: SQL): Promise<T[]> {
+    try {
+      const result = await this.db.execute(query);
+      if (!result || !('rows' in result)) {
+        throw new Error('Unexpected result format from database query');
+      }
+      return result.rows as T[];
+    } catch (err) {
+      this.logger.error('Error en consulta SQL', err);
+      return [];
+    }
   }
 }
