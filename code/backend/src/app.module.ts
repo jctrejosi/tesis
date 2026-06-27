@@ -9,6 +9,7 @@ import { DevicesModule } from './devices/devices.module';
 import { SensorsModule } from './sensors/sensors.module';
 import { ConfigModule as AppConfigModule } from './config/config.module';
 import { ActuatorsModule } from './actuators/actuators.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { ActuatorsModule } from './actuators/actuators.module';
     SensorsModule,
     AppConfigModule, // renombrado para no chocar con @nestjs/config
     ActuatorsModule,
+    AnalyticsModule,
     HealthModule,
   ],
 })

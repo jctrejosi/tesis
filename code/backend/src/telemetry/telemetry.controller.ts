@@ -21,7 +21,7 @@ export class TelemetryController {
   })
   @ApiParam({ name: 'alias', example: 'as7341' })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
-  async getLatest(@Param('alias') alias: string, @Query('limit') limit = 10) {
+  getLatest(@Param('alias') alias: string, @Query('limit') limit = 10) {
     return this.telemetryService.getLatest(alias, +limit);
   }
 
@@ -29,19 +29,15 @@ export class TelemetryController {
   @ApiOperation({ summary: 'Valor actual de cada métrica del sensor' })
   @ApiParam({ name: 'alias', example: 'bme680' })
   async getCurrent(@Param('alias') alias: string) {
-    const result = await this.telemetryService.getCurrentValues(alias);
-    return Array.isArray(result) ? result : result.rows;
+    return this.telemetryService.getCurrentValues(alias);
   }
 
   @Get(':alias/metrics')
   @ApiOperation({ summary: 'Listar métricas disponibles para un sensor' })
   @ApiParam({ name: 'alias', example: 'as7341' })
   async getMetrics(@Param('alias') alias: string) {
-    const result = await this.telemetryService.getAvailableMetrics(alias);
-    const rows = Array.isArray(result) ? result : result.rows;
-    return rows
-      .filter((r): r is { metric_name: string } => Boolean(r?.metric_name))
-      .map((r) => r.metric_name);
+    const metrics = await this.telemetryService.getAvailableMetrics(alias);
+    return metrics.map((m) => m.metric_name);
   }
 
   @Get(':alias/metrics/:metricName')
@@ -53,26 +49,20 @@ export class TelemetryController {
   @ApiQuery({ name: 'start', required: true, example: '2026-06-23T00:00:00Z' })
   @ApiQuery({ name: 'end', required: true, example: '2026-06-23T23:59:59Z' })
   @ApiQuery({ name: 'limit', required: false, example: 100 })
-  async getMetricRange(
+  getMetricRange(
     @Param('alias') alias: string,
     @Param('metricName') metricName: string,
     @Query('start') start: string,
     @Query('end') end: string,
     @Query('limit') limit = 100,
   ) {
-    const result = await this.telemetryService.getByTimeRange(
+    return this.telemetryService.getByTimeRange(
       alias,
       metricName,
       start,
       end,
       +limit,
     );
-    const rows = Array.isArray(result)
-      ? result
-      : result && 'rows' in result
-        ? result.rows
-        : [];
-    return rows;
   }
 
   @Get(':alias/metrics/:metricName/aggregated')
@@ -87,20 +77,19 @@ export class TelemetryController {
   })
   @ApiQuery({ name: 'start', required: true, example: '2026-06-20T00:00:00Z' })
   @ApiQuery({ name: 'end', required: true, example: '2026-06-23T23:59:59Z' })
-  async getAggregated(
+  getAggregated(
     @Param('alias') alias: string,
     @Param('metricName') metricName: string,
     @Query('bucket') bucket: '1 hour' | '1 day' = '1 hour',
     @Query('start') start: string,
     @Query('end') end: string,
   ) {
-    const result = await this.telemetryService.getAggregated(
+    return this.telemetryService.getAggregated(
       alias,
       metricName,
       bucket,
       start,
       end,
     );
-    return Array.isArray(result) ? result : result.rows;
   }
 }

@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { sql, SQL } from 'drizzle-orm';
@@ -76,6 +72,7 @@ export class TelemetryService {
     await this.analyticsService.processSensorData(
       sensorAlias,
       sensorId,
+      device_id,
       sampleId,
       realTime,
       metrics,

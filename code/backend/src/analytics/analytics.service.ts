@@ -27,6 +27,7 @@ export class AnalyticsService {
   async processSensorData(
     sensorAlias: string,
     sensorId: number,
+    deviceId: number,
     sampleId: string,
     time: string,
     metrics: Record<string, number>,
@@ -44,30 +45,21 @@ export class AnalyticsService {
 
       case 'mhz19b': {
         const currentCo2 = metrics.co2;
-
         if (currentCo2 !== undefined) {
           const prev = this.lastCo2Reading;
-
           const timeDiff = prev
             ? (new Date(time).getTime() - new Date(prev.time).getTime()) / 1000
             : 0;
-
           const result = calculateMhz19b(
             currentCo2,
             prev?.value ?? null,
             timeDiff,
           );
-
           if (result.co2_change_rate != null) {
             derived.co2_change_rate = result.co2_change_rate;
           }
-
-          this.lastCo2Reading = {
-            value: currentCo2,
-            time,
-          };
+          this.lastCo2Reading = { value: currentCo2, time };
         }
-
         break;
       }
 
@@ -76,33 +68,24 @@ export class AnalyticsService {
         break;
     }
 
-    const entries: Array<[string, number]> = Object.entries(derived).filter(
+    // Fusionar crudos + derivados
+    const allMetrics = { ...metrics, ...derived };
+
+    const entries: Array<[string, number]> = Object.entries(allMetrics).filter(
       (entry): entry is [string, number] => entry[1] != null,
     );
 
     for (const [metricName, value] of entries) {
       await this.db.execute(sql`
-        INSERT INTO sensor_analytics (
-          time,
-          sample_id,
-          sensor_id,
-          metric_name,
-          value
-        )
-        VALUES (
-          ${time}::timestamptz,
-          ${sampleId}::uuid,
-          ${sensorId},
-          ${metricName},
-          ${value}
-        )
-        ON CONFLICT DO NOTHING;
+        INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value)
+        VALUES (${time}::timestamptz, ${sampleId}::uuid, ${deviceId}, ${sensorId}, ${metricName}, ${value})
+        ON CONFLICT (time, sample_id, device_id, sensor_id, metric_name) DO NOTHING
       `);
     }
 
     if (entries.length > 0) {
       this.logger.debug(
-        `Derivados de ${sensorAlias}: ${entries.length} métricas`,
+        `Insertadas ${entries.length} métricas (crudos + derivados) de ${sensorAlias}`,
       );
     }
   }
@@ -113,30 +96,20 @@ export class AnalyticsService {
     limit = 100,
   ): Promise<{ time: string; value: number }[]> {
     try {
-      const result = await this.db.execute<{
-        time: string;
-        value: number;
-      }>(sql`
-        SELECT
-          a.time,
-          a.value
-        FROM sensor_analytics a
-        JOIN sensors s
-          ON s.id = a.sensor_id
-        WHERE
-          s.alias = ${sensorAlias}
-          AND a.metric_name = ${metricName}
-        ORDER BY a.time DESC
+      const result = await this.db.execute<{ time: string; value: number }>(sql`
+        SELECT t.time, t.value
+        FROM telemetry t
+        JOIN sensors s ON s.id = t.sensor_id
+        WHERE s.alias = ${sensorAlias} AND t.metric_name = ${metricName}
+        ORDER BY t.time DESC
         LIMIT ${limit}
       `);
-
       return result.rows;
     } catch (err) {
       this.logger.error(
         `Error obteniendo derivados de ${sensorAlias}/${metricName}`,
         err,
       );
-
       return [];
     }
   }
