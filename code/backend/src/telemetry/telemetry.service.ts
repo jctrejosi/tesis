@@ -4,7 +4,7 @@ import { sql, SQL } from 'drizzle-orm';
 import * as crypto from 'crypto';
 import { DRIZZLE } from '../db/database.module';
 import * as schema from '../db/schema';
-import { AnalyticsService } from '../analytics/analytics.service';
+import { DerivatesService } from '../derivates/derivates.service';
 
 export interface TelemetryMessage {
   device_id: number;
@@ -18,7 +18,7 @@ export class TelemetryService {
 
   constructor(
     @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
-    private readonly analyticsService: AnalyticsService,
+    private readonly analyticsService: DerivatesService,
   ) {}
 
   async ingest(sensorAlias: string, message: TelemetryMessage) {

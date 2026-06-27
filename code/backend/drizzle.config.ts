@@ -3,10 +3,10 @@ import type { Config } from 'drizzle-kit';
 export default {
   schema: './src/db/schema.ts',
   out: './drizzle',
-  driver: 'd1-http',
+  dialect: 'postgresql',
   dbCredentials: {
-    accountId: process.env.D1_ACCOUNT_ID!,
-    databaseId: process.env.D1_DATABASE_ID!,
-    token: process.env.D1_AUTH_TOKEN!,
+    url:
+      process.env.DATABASE_URL ||
+      'postgresql://cea_user:cea_password@localhost:5432/cea_db',
   },
-} as unknown as Config;
+} satisfies Config;

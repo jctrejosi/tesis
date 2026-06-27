@@ -11,8 +11,8 @@ import { calculateMhz19b } from './formulas/mhz19b.formula';
 import { calculateSoilEc } from './formulas/soil_ec.formula';
 
 @Injectable()
-export class AnalyticsService {
-  private readonly logger = new Logger(AnalyticsService.name);
+export class DerivatesService {
+  private readonly logger = new Logger(DerivatesService.name);
 
   private lastCo2Reading: {
     value: number;

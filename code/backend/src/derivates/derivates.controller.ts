@@ -1,11 +1,11 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery } from '@nestjs/swagger';
-import { AnalyticsService } from './analytics.service';
+import { DerivatesService } from './derivates.service';
 
-@ApiTags('analytics')
-@Controller('analytics')
-export class AnalyticsController {
-  constructor(private readonly analyticsService: AnalyticsService) {}
+@ApiTags('Derivates')
+@Controller('Derivates')
+export class DerivatesController {
+  constructor(private readonly DerivatesService: DerivatesService) {}
 
   @Get(':alias/:metricName')
   @ApiOperation({ summary: 'Obtener métricas derivadas de un sensor' })
@@ -17,6 +17,6 @@ export class AnalyticsController {
     @Param('metricName') metricName: string,
     @Query('limit') limit = 100,
   ) {
-    return this.analyticsService.getDerived(alias, metricName, +limit);
+    return this.DerivatesService.getDerived(alias, metricName, +limit);
   }
 }
