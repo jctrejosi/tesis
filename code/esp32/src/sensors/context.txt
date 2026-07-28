@@ -1,0 +1,2514 @@
+﻿============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\scheduler.cpp
+============================================================
+#include "sensors/scheduler.h"
+#include "sensors/sensor_manager.h"
+#include "actuators/relay/command_handler.h"
+#include "actuators/relay/publisher.h"
+
+#include <Arduino.h>
+
+namespace scheduler {
+
+    static unsigned long last_global_sync = 0;
+    static unsigned long global_sync_interval = 300000; // 5 min
+    static unsigned long last_relay_publish = 0;
+
+    void begin() {
+        last_global_sync = millis();
+        last_relay_publish = millis();
+    }
+
+    void update() {
+        unsigned long now = millis();
+
+        // individuales
+        sensors::update_individual();
+
+        // PublicaciÃ³n periÃ³dica del estado del relÃ©
+        relay::Sensor& relay_sensor = relay::get_relay_sensor();
+        uint32_t relay_interval = relay_sensor.get_config().publish_interval_ms;
+
+        if (relay_interval > 0 && (now - last_relay_publish >= relay_interval)) {
+            last_relay_publish = now;
+            relay::Publisher::publish_all_state(relay_sensor);
+        }
+
+        // sincronizado global
+        if (now - last_global_sync >= global_sync_interval) {
+            last_global_sync = now;
+            sensors::update_global_sync();
+        }
+
+}
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\sensor_manager.cpp
+============================================================
+#include "sensors/sensor_manager.h"
+
+#include "sensors/bme680/sensor.h"
+#include "sensors/bme680/publisher.h"
+
+#include "sensors/as7341/sensor.h"
+#include "sensors/as7341/publisher.h"
+#include "sensors/as7341/config_store.h"
+
+#include "sensors/mhz19b/sensor.h"
+#include "sensors/mhz19b/publisher.h"
+#include "sensors/mhz19b/config_store.h"
+
+#include "sensors/soil_ec_rs485/sensor.h"
+#include "sensors/soil_ec_rs485/publisher.h"
+#include "sensors/soil_ec_rs485/config_store.h"
+
+#include <Arduino.h>
+#include <Wire.h>
+
+namespace sensors {
+
+    // ===== sensores Ãºnicos =====
+    static bme680::Sensor bme680;
+    static as7341::Sensor as7341;
+    static mhz19b::Sensor mhz19b;
+    static soil_ec_rs485::Sensor soil_ec;
+
+    // ===== timers =====
+    static unsigned long last_bme = 0;
+    static unsigned long last_as  = 0;
+    static unsigned long last_co2 = 0;
+    static unsigned long last_ec  = 0;
+
+    // =========================================================
+    void begin() {
+        Wire.begin(21, 22);
+
+        bme680.init();
+        as7341.init();
+        mhz19b.init();
+        soil_ec.init();
+
+        unsigned long now = millis();
+
+        last_bme = now;
+        last_as  = now + 2000;
+        last_co2 = now + 4000;
+        last_ec  = now + 6000;
+    }
+
+    // =========================================================
+    void update_individual() {
+        unsigned long now = millis();
+
+        // Publicar un solo sensor por iteraciÃ³n (round-robin)
+        static uint8_t next_sensor = 0;
+        switch(next_sensor) {
+            case 0:
+                if (now - last_bme >= bme680.get_config().interval_ms) {
+                    last_bme = now;
+                    bme680::Publisher::publish(bme680.read());
+                }
+                break;
+            case 1:
+                if (now - last_as >= as7341.get_config().interval_ms) {
+                    last_as = now;
+                    as7341::Publisher::publish(as7341.read());
+                }
+                break;
+            case 2:
+                if (now - last_co2 >= mhz19b.get_config().interval_ms) {
+                    last_co2 = now;
+                    mhz19b::Publisher::publish(mhz19b.read());
+                }
+                break;
+            case 3:
+                if (now - last_ec >= soil_ec.get_config().interval_ms) {
+                    last_ec = now;
+                    soil_ec_rs485::Publisher::publish(soil_ec.read());
+                }
+                break;
+        }
+        next_sensor = (next_sensor + 1) % 4;
+    }
+
+    // =========================================================
+    void update_global_sync() {
+
+        Serial.println("[SYNC] global sampling");
+
+        bme680::Publisher::publish(bme680.read());
+        as7341::Publisher::publish(as7341.read());
+
+        mhz19b::Publisher::publish(mhz19b.read());
+        soil_ec_rs485::Publisher::publish(soil_ec.read());
+    }
+
+    // =========================================================
+    // publish inmediato
+
+    void publish_bme680_now() {
+        bme680::Publisher::publish(bme680.read());
+    }
+
+    void publish_as7341_now() {
+        as7341::Publisher::publish(as7341.read());
+    }
+
+    void publish_mhz19b_now() {
+        mhz19b::Publisher::publish(mhz19b.read());
+    }
+
+    void publish_soil_ec_rs485_now() {
+        soil_ec_rs485::Publisher::publish(soil_ec.read());
+    }
+
+    void publish_all_now() {
+        publish_bme680_now();
+        publish_as7341_now();
+        publish_mhz19b_now();
+        publish_soil_ec_rs485_now();
+    }
+
+    // =========================================================
+    // config
+
+    bool apply_bme680_config(const bme680::Config& cfg) {
+        if (!bme680.apply_config(cfg)) return false;
+        return true;
+    }
+
+    bool apply_as7341_config(const as7341::Config& cfg) {
+        if (!as7341.apply_config(cfg)) return false;
+        storage::save_as7341_config(cfg);
+        return true;
+    }
+
+    bool apply_mhz19b_config(const mhz19b::Config& cfg) {
+        if (!mhz19b.apply_config(cfg)) return false;
+        storage::save_mhz19b_config(cfg);
+        return true;
+    }
+
+    bool apply_soil_ec_rs485_config(const soil_ec_rs485::Config& cfg) {
+        if (!soil_ec.apply_config(cfg)) return false;
+        storage::save_soil_ec_rs485_config(cfg);
+        return true;
+    }
+
+    // =========================================================
+    // publish config
+
+    void publish_as7341_config() {
+        as7341::Config cfg = as7341.get_config();
+        as7341::Publisher::publish_config(cfg);
+    }
+
+    void publish_bme680_config() {
+        bme680::Config cfg = bme680.get_config();
+        bme680::Publisher::publish_config(cfg);
+    }
+
+    void publish_mhz19b_config() {
+        mhz19b::Config cfg = mhz19b.get_config();
+        mhz19b::Publisher::publish_config(cfg);
+    }
+
+    void publish_soil_ec_rs485_config() {
+        soil_ec_rs485::Config cfg = soil_ec.get_config();
+        soil_ec_rs485::Publisher::publish_config(cfg);
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\as7341\command_handler.cpp
+============================================================
+#include "sensors/as7341/command_handler.h"
+
+#include "sensors/as7341/config.h"
+#include "sensors/sensor_manager.h"
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+
+namespace as7341 {
+
+    void handle_read_command() {
+
+        sensors::publish_as7341_now();
+    }
+
+    void handle_config_command(
+        const char* payload
+    ) {
+
+        JsonDocument doc;
+
+        DeserializationError error =
+            deserializeJson(doc, payload);
+
+        if (error) {
+
+            Serial.println(
+                "[AS7341] JSON invÃ¡lido"
+            );
+
+            return;
+        }
+
+        Config cfg;
+
+        cfg.interval_ms =
+            doc["interval_ms"] | 10000;
+
+        cfg.simulation =
+            doc["simulation"] | false;
+
+        cfg.atime =
+            doc["atime"] | 29;
+
+        cfg.astep =
+            doc["astep"] | 599;
+
+        cfg.gain =
+            doc["gain"] | 128;
+
+        cfg.led_enabled =
+            doc["led_enabled"] | false;
+
+        cfg.led_current_ma =
+            doc["led_current_ma"] | 10;
+
+        if (!validate_config(cfg)) {
+
+            Serial.println(
+                "[AS7341] config invÃ¡lida"
+            );
+
+            return;
+        }
+
+        if (!sensors::apply_as7341_config(cfg)) {
+
+            Serial.println(
+                "[AS7341] no se pudo aplicar configuraciÃ³n"
+            );
+
+            return;
+        }
+
+        Serial.println(
+            "[AS7341] configuraciÃ³n aplicada"
+        );
+    }
+
+    void handle_read_config_command() {
+        sensors::publish_as7341_config();
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\as7341\config.cpp
+============================================================
+#include "sensors/as7341/config.h"
+
+#include <Arduino.h>
+
+namespace as7341 {
+
+    Config get_default_config() {
+
+        Config cfg;
+
+        cfg.interval_ms = 10000; // 10s
+        cfg.simulation = false;
+
+        // Sensor defaults
+        cfg.atime = 29;
+        cfg.astep = 599;
+
+        cfg.gain = 128;
+
+        // LED
+        cfg.led_enabled = false;
+        cfg.led_current_ma = 10;
+
+        return cfg;
+    }
+
+    bool validate_config(const Config& cfg) {
+
+        // Framework
+
+        if (cfg.interval_ms < 1000) {
+            return false;
+        }
+
+        if (cfg.interval_ms > 3600000) {
+            return false;
+        }
+
+        // AS7341 integration settings
+
+        if (cfg.atime > 255) {
+            return false;
+        }
+
+        if (cfg.astep > 65534) {
+            return false;
+        }
+
+        // Supported gain values
+
+        switch (cfg.gain) {
+
+            case 1:
+            case 2:
+            case 4:
+            case 8:
+            case 16:
+            case 32:
+            case 64:
+            case 128:
+            case 256:
+            case 512:
+                break;
+
+            default:
+                return false;
+        }
+
+        // LED current
+
+        if (cfg.led_current_ma > 100) {
+            return false;
+        }
+
+        return true;
+    }
+
+    void print_config(const Config& cfg) {
+
+        Serial.println("------ AS7341 CONFIG ------");
+
+        Serial.print("interval_ms: ");
+        Serial.println(cfg.interval_ms);
+
+        Serial.print("simulation: ");
+        Serial.println(cfg.simulation);
+
+        Serial.print("atime: ");
+        Serial.println(cfg.atime);
+
+        Serial.print("astep: ");
+        Serial.println(cfg.astep);
+
+        Serial.print("gain: ");
+        Serial.println(cfg.gain);
+
+        Serial.print("led_enabled: ");
+        Serial.println(cfg.led_enabled);
+
+        Serial.print("led_current_ma: ");
+        Serial.println(cfg.led_current_ma);
+
+        Serial.println("---------------------------");
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\as7341\config_store.cpp
+============================================================
+#include "sensors/as7341/config_store.h"
+
+#include <Preferences.h>
+#include <Arduino.h>
+
+namespace storage {
+
+    static Preferences prefs;
+
+    bool save_as7341_config(const as7341::Config& cfg) {
+        if (!prefs.begin("as7341", false)) {
+            return false;
+        }
+
+        prefs.putULong("interval", cfg.interval_ms);
+        prefs.putBool("sim", cfg.simulation);
+        prefs.putUChar("atime", cfg.atime);
+        prefs.putUShort("astep", cfg.astep);
+        prefs.putUShort("gain", cfg.gain);
+        prefs.putBool("led_en", cfg.led_enabled);
+        prefs.putUShort("led_ma", cfg.led_current_ma);
+
+        prefs.end();
+        return true;
+    }
+
+    as7341::Config load_as7341_config() {
+        as7341::Config cfg = as7341::get_default_config();
+
+        if (!prefs.begin("as7341", false)) {
+            return cfg;
+        }
+
+        cfg.interval_ms = prefs.getULong("interval", cfg.interval_ms);
+        cfg.simulation = prefs.getBool("sim", cfg.simulation);
+        cfg.atime = prefs.getUChar("atime", cfg.atime);
+        cfg.astep = prefs.getUShort("astep", cfg.astep);
+        cfg.gain = prefs.getUShort("gain", cfg.gain);
+        cfg.led_enabled = prefs.getBool("led_en", cfg.led_enabled);
+        cfg.led_current_ma = prefs.getUShort("led_ma", cfg.led_current_ma);
+
+        prefs.end();
+
+        if (!as7341::validate_config(cfg)) {
+            Serial.println("[AS7341] config invÃ¡lida en NVS, usando defaults");
+            cfg = as7341::get_default_config();
+            save_as7341_config(cfg);
+        }
+
+        return cfg;
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\as7341\driver.cpp
+============================================================
+#include "sensors/as7341/driver.h"
+
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_AS7341.h>
+
+#define AS7341_SDA_PIN 21
+#define AS7341_SCL_PIN 22
+
+namespace as7341 {
+
+    static Adafruit_AS7341 sensor;
+
+    AS7341Driver::AS7341Driver()
+        : simulation_mode(false),
+          hardware_ready(false),
+          current_config(get_default_config()) {
+    }
+
+    uint8_t AS7341Driver::map_gain(uint16_t gain) {
+
+        switch (gain) {
+
+            case 1:
+                return AS7341_GAIN_0_5X;
+
+            case 2:
+                return AS7341_GAIN_1X;
+
+            case 4:
+                return AS7341_GAIN_2X;
+
+            case 8:
+                return AS7341_GAIN_4X;
+
+            case 16:
+                return AS7341_GAIN_8X;
+
+            case 32:
+                return AS7341_GAIN_16X;
+
+            case 64:
+                return AS7341_GAIN_32X;
+
+            case 128:
+                return AS7341_GAIN_64X;
+
+            case 256:
+                return AS7341_GAIN_128X;
+
+            case 512:
+                return AS7341_GAIN_256X;
+
+            default:
+                return AS7341_GAIN_64X;
+        }
+    }
+
+    void AS7341Driver::apply_hardware_config() {
+
+        if (!hardware_ready || simulation_mode) {
+            return;
+        }
+
+        sensor.setATIME(current_config.atime);
+
+        sensor.setASTEP(current_config.astep);
+
+        sensor.setGain(
+            (as7341_gain_t) map_gain(current_config.gain)
+        );
+
+        if (current_config.led_enabled) {
+
+            sensor.enableLED(true);
+
+            sensor.setLEDCurrent(
+                current_config.led_current_ma
+            );
+        }
+        else {
+
+            sensor.enableLED(false);
+        }
+    }
+
+    bool AS7341Driver::begin() {
+        randomSeed(millis());
+
+        if (simulation_mode) {
+            hardware_ready = false;
+            return true;
+        }
+
+        // NO llamar a Wire.begin() - ya estÃ¡ inicializado globalmente
+
+        if (!sensor.begin()) {
+            Serial.println("[AS7341] sensor no detectado, activando simulaciÃ³n");
+            simulation_mode = true;
+            current_config.simulation = true;
+            hardware_ready = false;
+            return true;
+        }
+
+        hardware_ready = true;
+        apply_hardware_config();
+
+        Serial.println("[AS7341] inicializado");
+        return true;
+    }
+
+    void AS7341Driver::set_simulation_mode(bool enabled) {
+        if (enabled == simulation_mode) return;
+        simulation_mode = enabled;
+        current_config.simulation = enabled;
+
+        if (enabled) {
+            // Al entrar en simulaciÃ³n, marcamos hardware como no listo
+            // pero NO tocamos Wire (el bus sigue activo para otros sensores)
+            hardware_ready = false;
+        } else {
+            // Al salir de simulaciÃ³n, el bus I2C ya estÃ¡ inicializado globalmente
+            // Solo verificamos que el sensor responde y aplicamos configuraciÃ³n
+            if (sensor.begin()) {
+                hardware_ready = true;
+                apply_hardware_config();
+            } else {
+                Serial.println("[AS7341] sensor no responde al salir de simulaciÃ³n");
+                hardware_ready = false;
+            }
+        }
+    }
+
+    bool AS7341Driver::apply_config(
+        const Config& cfg
+    ) {
+
+        if (!validate_config(cfg)) {
+
+            Serial.println(
+                "[AS7341] config invÃ¡lida"
+            );
+
+            return false;
+        }
+
+        current_config = cfg;
+
+        simulation_mode = cfg.simulation;
+
+        if (hardware_ready &&
+            !simulation_mode) {
+
+            apply_hardware_config();
+        }
+
+        return true;
+    }
+
+    Config AS7341Driver::get_config() const {
+
+        return current_config;
+    }
+
+    AS7341Data AS7341Driver::read() {
+
+        AS7341Data data{};
+
+        if (simulation_mode) {
+
+            data.f1_415nm = random(100, 5000);
+            data.f2_445nm = random(100, 5000);
+            data.f3_480nm = random(100, 5000);
+            data.f4_515nm = random(100, 5000);
+            data.f5_555nm = random(100, 5000);
+
+            data.f6_590nm = random(100, 5000);
+            data.f7_630nm = random(100, 5000);
+            data.f8_680nm = random(100, 5000);
+
+            data.clear = random(1000, 15000);
+            data.nir = random(100, 5000);
+
+            return data;
+        }
+
+        if (!hardware_ready) {
+
+            return data;
+        }
+
+        if (!sensor.readAllChannels()) {
+
+            Serial.println(
+                "[AS7341] error de lectura"
+            );
+
+            return data;
+        }
+
+        data.f1_415nm = sensor.getChannel(
+            AS7341_CHANNEL_415nm_F1
+        );
+
+        data.f2_445nm = sensor.getChannel(
+            AS7341_CHANNEL_445nm_F2
+        );
+
+        data.f3_480nm = sensor.getChannel(
+            AS7341_CHANNEL_480nm_F3
+        );
+
+        data.f4_515nm = sensor.getChannel(
+            AS7341_CHANNEL_515nm_F4
+        );
+
+        data.f5_555nm = sensor.getChannel(
+            AS7341_CHANNEL_555nm_F5
+        );
+
+        data.f6_590nm = sensor.getChannel(
+            AS7341_CHANNEL_590nm_F6
+        );
+
+        data.f7_630nm = sensor.getChannel(
+            AS7341_CHANNEL_630nm_F7
+        );
+
+        data.f8_680nm = sensor.getChannel(
+            AS7341_CHANNEL_680nm_F8
+        );
+
+        data.clear = sensor.getChannel(
+            AS7341_CHANNEL_CLEAR
+        );
+
+        data.nir = sensor.getChannel(
+            AS7341_CHANNEL_NIR
+        );
+
+        return data;
+    }
+
+    bool AS7341Driver::is_ready() const {
+
+        return hardware_ready;
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\as7341\publisher.cpp
+============================================================
+#include "sensors/as7341/publisher.h"
+#include "mqtt/telemetry_publisher.h"
+#include <ArduinoJson.h>
+#include "mqtt/message_queue.h"
+#include <mqtt/client.h>
+
+namespace as7341 {
+
+    void Publisher::publish(const AS7341Data& data) {
+        JsonDocument doc;
+        JsonObject metrics = doc.to<JsonObject>();
+
+        metrics["f1_415nm"] = data.f1_415nm;
+        metrics["f2_445nm"] = data.f2_445nm;
+        metrics["f3_480nm"] = data.f3_480nm;
+        metrics["f4_515nm"] = data.f4_515nm;
+        metrics["f5_555nm"] = data.f5_555nm;
+        metrics["f6_590nm"] = data.f6_590nm;
+        metrics["f7_630nm"] = data.f7_630nm;
+        metrics["f8_680nm"] = data.f8_680nm;
+        metrics["clear"]   = data.clear;
+        metrics["nir"]     = data.nir;
+
+        Serial.print("[as7341] published: ");
+        serializeJson(doc, Serial);
+        Serial.println();
+
+        publish_telemetry("as7341", metrics);
+    }
+
+    void Publisher::publish_config(const Config& cfg) {
+        JsonDocument doc;
+        doc["interval_ms"]      = cfg.interval_ms;
+        doc["simulation"]       = cfg.simulation;
+        doc["atime"]            = cfg.atime;
+        doc["astep"]            = cfg.astep;
+        doc["gain"]             = cfg.gain;
+        doc["led_enabled"]      = cfg.led_enabled;
+        doc["led_current_ma"]   = cfg.led_current_ma;
+
+        char buffer[256];
+        size_t len = serializeJson(doc, buffer, sizeof(buffer));
+        if (len == 0 || len >= sizeof(buffer)) {
+            Serial.println("[AS7341] error serializando config");
+            return;
+        }
+
+        Serial.print("[AS7341] publish config: ");
+        Serial.println(buffer);
+        if (!publish_message("growbox/as7341/config", buffer, MessagePriority::PRIORITY_HIGH)) {
+            Serial.println("[AS7341] error MQTT config");
+        }
+    }
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\as7341\sensor.cpp
+============================================================
+#include "sensors/as7341/sensor.h"
+#include "sensors/as7341/config_store.h"
+#include <Arduino.h>
+
+namespace as7341 {
+
+    Sensor::Sensor()
+        : config(get_default_config()) {}
+
+    void Sensor::init() {
+        config = storage::load_as7341_config();
+
+        if (!driver.apply_config(config)) {
+            Serial.println("[AS7341] config invÃ¡lida");
+            config = get_default_config();
+
+            if (!driver.apply_config(config)) {
+                Serial.println("[AS7341] no se pudo aplicar config por defecto");
+            }
+
+            storage::save_as7341_config(config);
+        }
+
+        if (!driver.begin()) {
+            Serial.println("[AS7341] init failed");
+        } else {
+            Serial.println("[AS7341] ready");
+        }
+    }
+
+    AS7341Data Sensor::read() {
+        return driver.read();
+    }
+
+    bool Sensor::apply_config(const Config& cfg) {
+        if (!driver.apply_config(cfg)) {
+            return false;
+        }
+
+        config = cfg;
+
+        if (!storage::save_as7341_config(cfg)) {
+            Serial.println("[AS7341] no se pudo guardar config en NVS");
+            return false;
+        }
+
+        return true;
+    }
+
+    Config Sensor::get_config() const {
+        return driver.get_config();
+    }
+
+    void Sensor::set_simulation(bool enabled) {
+        config.simulation = enabled;
+        driver.set_simulation_mode(enabled);
+    }
+
+    AS7341Driver& Sensor::get_driver() {
+        return driver;
+    }
+
+    const AS7341Driver& Sensor::get_driver() const {
+        return driver;
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\bme680\command_handler.cpp
+============================================================
+#include "sensors/bme680/command_handler.h"
+#include "sensors/sensor_manager.h"
+#include "sensors/bme680/config.h"
+
+#include <ArduinoJson.h>
+#include <Arduino.h>
+namespace bme680 {
+
+    void handle_read_command() {
+        sensors::publish_bme680_now();
+    }
+
+    void handle_config_command(const char* payload) {
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, payload);
+
+        if (error) {
+            Serial.println("[BME680] config JSON invÃ¡lido");
+            return;
+        }
+
+        Config cfg;
+        cfg.interval_ms = doc["interval_ms"] | 10000;
+        cfg.simulation = doc["simulation"] | false;
+        cfg.temp_oversample = doc["temp_oversample"] | 8;
+        cfg.hum_oversample = doc["hum_oversample"] | 2;
+        cfg.press_oversample = doc["press_oversample"] | 4;
+        cfg.iir_filter = doc["iir_filter"] | 3;
+        cfg.gas_heater_temp = doc["gas_heater_temp"] | 320;
+        cfg.gas_heater_duration = doc["gas_heater_duration"] | 150;
+
+        if (!bme680::validate_config(cfg)) {
+            Serial.println("[BME680] config invÃ¡lida");
+            return;
+        }
+
+        if (!sensors::apply_bme680_config(cfg)) {
+            Serial.println("[BME680] no se pudo aplicar la configuraciÃ³n");
+            return;
+        }
+
+        Serial.println("[BME680] nueva configuraciÃ³n aplicada");
+    }
+
+    void handle_read_config_command() {
+        sensors::publish_bme680_config();
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\bme680\config.cpp
+============================================================
+#include "sensors/bme680/config.h"
+#include <Arduino.h>
+
+namespace bme680 {
+
+    Config get_default_config() {
+        Config cfg;
+
+        cfg.interval_ms = 15000; // 15s
+        cfg.simulation = false;
+
+        cfg.temp_oversample = 8;
+        cfg.hum_oversample = 2;
+        cfg.press_oversample = 4;
+
+        cfg.iir_filter = 3;
+
+        cfg.gas_heater_temp = 320;
+        cfg.gas_heater_duration = 150;
+
+        return cfg;
+    }
+
+    static bool is_valid_oversample(uint8_t value) {
+        return value == 0 || value == 1 || value == 2 || value == 4 || value == 8 || value == 16;
+    }
+
+    static bool is_valid_filter(uint8_t value) {
+        return value == 0 || value == 1 || value == 3 || value == 7 ||
+            value == 15 || value == 31 || value == 63 || value == 127;
+    }
+
+    bool validate_config(const Config& cfg) {
+        if (cfg.interval_ms < 1000) return false;
+        if (cfg.interval_ms > 3600000) return false;
+
+        if (!is_valid_oversample(cfg.temp_oversample)) return false;
+        if (!is_valid_oversample(cfg.hum_oversample)) return false;
+        if (!is_valid_oversample(cfg.press_oversample)) return false;
+
+        if (!is_valid_filter(cfg.iir_filter)) return false;
+
+        if (cfg.gas_heater_temp < 200 || cfg.gas_heater_temp > 400) return false;
+        if (cfg.gas_heater_duration > 300) return false;
+
+        return true;
+    }
+
+    void print_config(const Config& cfg) {
+        Serial.println("---- BME680 CONFIG ----");
+
+        Serial.print("interval_ms: ");
+        Serial.println(cfg.interval_ms);
+
+        Serial.print("simulation: ");
+        Serial.println(cfg.simulation);
+
+        Serial.print("temp_oversample: ");
+        Serial.println(cfg.temp_oversample);
+
+        Serial.print("hum_oversample: ");
+        Serial.println(cfg.hum_oversample);
+
+        Serial.print("press_oversample: ");
+        Serial.println(cfg.press_oversample);
+
+        Serial.print("iir_filter: ");
+        Serial.println(cfg.iir_filter);
+
+        Serial.print("gas_heater_temp: ");
+        Serial.println(cfg.gas_heater_temp);
+
+        Serial.print("gas_heater_duration: ");
+        Serial.println(cfg.gas_heater_duration);
+
+        Serial.println("------------------------");
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\bme680\config_store.cpp
+============================================================
+#include "sensors/bme680/config_store.h"
+#include <Preferences.h>
+
+namespace storage {
+
+    Preferences prefs;
+
+    bool save_bme680_config(const bme680::Config& cfg) {
+        if (!prefs.begin("bme680", false)) {
+            return false;
+        }
+
+        prefs.putULong("interval", cfg.interval_ms);
+        prefs.putBool("sim", cfg.simulation);
+
+        prefs.putUChar("temp_os", cfg.temp_oversample);
+        prefs.putUChar("hum_os", cfg.hum_oversample);
+        prefs.putUChar("press_os", cfg.press_oversample);
+
+        prefs.putUChar("iir", cfg.iir_filter);
+
+        prefs.putUShort("gas_temp", cfg.gas_heater_temp);
+        prefs.putUShort("gas_dur", cfg.gas_heater_duration);
+
+        prefs.end();
+        return true;
+    }
+
+    bme680::Config load_bme680_config() {
+        bme680::Config cfg = bme680::get_default_config();
+
+        if (!prefs.begin("bme680", false)) {
+            return cfg;
+        }
+
+        cfg.interval_ms = prefs.getULong("interval", cfg.interval_ms);
+        cfg.simulation = prefs.getBool("sim", cfg.simulation);
+
+        cfg.temp_oversample = prefs.getUChar("temp_os", cfg.temp_oversample);
+        cfg.hum_oversample = prefs.getUChar("hum_os", cfg.hum_oversample);
+        cfg.press_oversample = prefs.getUChar("press_os", cfg.press_oversample);
+
+        cfg.iir_filter = prefs.getUChar("iir", cfg.iir_filter);
+
+        cfg.gas_heater_temp = prefs.getUShort("gas_temp", cfg.gas_heater_temp);
+        cfg.gas_heater_duration = prefs.getUShort("gas_dur", cfg.gas_heater_duration);
+
+        prefs.end();
+
+        if (!bme680::validate_config(cfg)) {
+            return bme680::get_default_config();
+        }
+
+        return cfg;
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\bme680\driver.cpp
+============================================================
+#include "sensors/bme680/driver.h"
+
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_BME680.h>
+
+#define BME680_I2C_ADDRESS 0x76
+#define BME680_SDA_PIN 21
+#define BME680_SCL_PIN 22
+
+namespace bme680 {
+
+    static Adafruit_BME680 bme;
+
+    BME680Driver::BME680Driver()
+        : simulation_mode(false),
+        hardware_ready(false),
+        current_config(get_default_config()) {}
+
+    uint8_t BME680Driver::map_oversampling(uint8_t value) {
+        switch (value) {
+            case 0:  return BME680_OS_NONE;
+            case 1:  return BME680_OS_1X;
+            case 2:  return BME680_OS_2X;
+            case 4:  return BME680_OS_4X;
+            case 8:  return BME680_OS_8X;
+            case 16: return BME680_OS_16X;
+            default: return BME680_OS_8X;
+        }
+    }
+
+    uint8_t BME680Driver::map_filter(uint8_t value) {
+        switch (value) {
+            case 0:   return BME680_FILTER_SIZE_0;
+            case 1:   return BME680_FILTER_SIZE_1;
+            case 3:   return BME680_FILTER_SIZE_3;
+            case 7:   return BME680_FILTER_SIZE_7;
+            case 15:  return BME680_FILTER_SIZE_15;
+            case 31:  return BME680_FILTER_SIZE_31;
+            case 63:  return BME680_FILTER_SIZE_63;
+            case 127: return BME680_FILTER_SIZE_127;
+            default:  return BME680_FILTER_SIZE_3;
+        }
+    }
+
+    void BME680Driver::apply_hardware_config() {
+        if (!hardware_ready || simulation_mode) {
+            return;
+        }
+
+        bme.setTemperatureOversampling(map_oversampling(current_config.temp_oversample));
+        bme.setHumidityOversampling(map_oversampling(current_config.hum_oversample));
+        bme.setPressureOversampling(map_oversampling(current_config.press_oversample));
+        bme.setIIRFilterSize(map_filter(current_config.iir_filter));
+        bme.setGasHeater(current_config.gas_heater_temp, current_config.gas_heater_duration);
+    }
+
+    bool BME680Driver::begin() {
+        randomSeed(millis());
+
+        if (simulation_mode) {
+            hardware_ready = false;
+            Serial.println("BME680 en modo simulaciÃ³n (config)");
+            return true;
+        }
+
+        // NO llamar a Wire.begin() - ya estÃ¡ inicializado globalmente
+
+        if (!bme.begin(BME680_I2C_ADDRESS)) {
+            Serial.println("Error: no se encontrÃ³ BME680 en I2C, activando simulaciÃ³n");
+            simulation_mode = true;
+            current_config.simulation = true;
+            hardware_ready = false;
+            return true;
+        }
+
+        hardware_ready = true;
+        apply_hardware_config();
+        Serial.println("BME680 inicializado correctamente");
+        return true;
+    }
+
+    void BME680Driver::set_simulation_mode(bool enabled) {
+        if (enabled == simulation_mode) return;
+        simulation_mode = enabled;
+        current_config.simulation = enabled;
+
+        if (enabled) {
+            // Al entrar en simulaciÃ³n, marcamos hardware como no listo
+            // pero NO tocamos Wire (el bus sigue activo para otros sensores)
+            hardware_ready = false;
+        } else {
+            // Al salir de simulaciÃ³n, el bus I2C ya estÃ¡ inicializado globalmente
+            if (bme.begin(BME680_I2C_ADDRESS)) {
+                hardware_ready = true;
+                apply_hardware_config();
+            } else {
+                Serial.println("[BME680] sensor no responde al salir de simulaciÃ³n");
+                hardware_ready = false;
+            }
+        }
+    }
+
+    bool BME680Driver::apply_config(const Config& cfg) {
+        if (!validate_config(cfg)) {
+            Serial.println("Error: config BME680 invÃ¡lida");
+            return false;
+        }
+
+        current_config = cfg;
+        simulation_mode = cfg.simulation;
+
+        if (hardware_ready && !simulation_mode) {
+            apply_hardware_config();
+        }
+
+        return true;
+    }
+
+    Config BME680Driver::get_config() const {
+        return current_config;
+    }
+
+    BME680Data BME680Driver::read() {
+        BME680Data data{};
+
+        if (simulation_mode) {
+            data.temperature = random(220, 320) / 10.0;
+            data.humidity = random(400, 800) / 10.0;
+            data.pressure = random(9900, 10300) / 10.0;
+            data.gas_resistance = random(100, 500);
+            return data;
+        }
+
+        if (!bme.performReading()) {
+            Serial.println("Error: lectura BME680 fallÃ³");
+
+            data.temperature = NAN;
+            data.humidity = NAN;
+            data.pressure = NAN;
+            data.gas_resistance = NAN;
+            return data;
+        }
+
+        data.temperature = bme.temperature;
+        data.humidity = bme.humidity;
+        data.pressure = bme.pressure / 100.0;
+        data.gas_resistance = bme.gas_resistance;
+
+        return data;
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\bme680\publisher.cpp
+============================================================
+#include "sensors/bme680/publisher.h"
+#include "mqtt/client.h"
+#include "mqtt/telemetry_publisher.h"
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+
+namespace bme680 {
+
+    bool Publisher::publish(const BME680Data& data) {
+        JsonDocument doc;
+        JsonObject metrics = doc.to<JsonObject>();
+
+        metrics["temperature"]   = data.temperature;
+        metrics["humidity"]      = data.humidity;
+        metrics["pressure"]      = data.pressure;
+        metrics["gas_resistance"] = data.gas_resistance;
+
+        publish_telemetry("bme680", metrics);
+
+        Serial.print("[BME680] published: ");
+        serializeJson(doc, Serial);
+        Serial.println();
+        return true;
+    }
+
+    void Publisher::publish_config(const Config& cfg) {
+        JsonDocument doc;
+        doc["interval_ms"]       = cfg.interval_ms;
+        doc["simulation"]        = cfg.simulation;
+        doc["temp_oversample"]   = cfg.temp_oversample;
+        doc["hum_oversample"]    = cfg.hum_oversample;
+        doc["press_oversample"]  = cfg.press_oversample;
+        doc["iir_filter"]        = cfg.iir_filter;
+        doc["gas_heater_temp"]   = cfg.gas_heater_temp;
+        doc["gas_heater_duration"] = cfg.gas_heater_duration;
+
+        char buffer[256];
+        size_t len = serializeJson(doc, buffer, sizeof(buffer));
+        if (len == 0 || len >= sizeof(buffer)) {
+            Serial.println("[BME680] error serializando config");
+            return;
+        }
+
+        Serial.print("[BME680] publish config: ");
+        Serial.println(buffer);
+        if (!publish_message("growbox/bme680/config", buffer, MessagePriority::PRIORITY_HIGH)) {
+            Serial.println("[BME680] error MQTT config");
+        }
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\bme680\sensor.cpp
+============================================================
+#include "sensors/bme680/sensor.h"
+#include "sensors/bme680/config_store.h"
+#include <Arduino.h>
+
+namespace bme680 {
+
+    void Sensor::begin() {
+        Config cfg = storage::load_bme680_config();
+
+        if (!validate_config(cfg)) {
+            Serial.println("[BME680] config persistida invÃ¡lida, usando default");
+            cfg = get_default_config();
+        }
+
+        if (!driver.apply_config(cfg)) {
+            Serial.println("[BME680] no se pudo aplicar config persistida");
+        }
+
+        if (!driver.begin()) {
+            Serial.println("[BME680] init failed");
+        } else {
+            Serial.println("[BME680] ready");
+        }
+    }
+
+    void Sensor::init() {
+        begin(); // compatibilidad si el resto del cÃ³digo aÃºn llama init()
+    }
+
+    BME680Data Sensor::read() {
+        return driver.read();
+    }
+
+    bool Sensor::apply_config(const Config& cfg) {
+        if (!driver.apply_config(cfg)) {
+            return false;
+        }
+
+        if (!storage::save_bme680_config(cfg)) {
+            Serial.println("[BME680] no se pudo guardar config en NVS");
+            return false;
+        }
+
+        return true;
+    }
+
+    Config Sensor::get_config() const {
+        return driver.get_config();
+    }
+
+    BME680Driver& Sensor::get_driver() {
+        return driver;
+    }
+
+    const BME680Driver& Sensor::get_driver() const {
+        return driver;
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\mhz19b\command_handler.cpp
+============================================================
+#include "sensors/mhz19b/command_handler.h"
+
+#include "sensors/sensor_manager.h"
+#include "sensors/mhz19b/config.h"
+
+#include <ArduinoJson.h>
+#include <Arduino.h>
+
+namespace mhz19b {
+
+    void handle_read_command() {
+        sensors::publish_mhz19b_now();
+    }
+
+    void handle_config_command(const char* payload) {
+        JsonDocument doc;
+
+        DeserializationError error = deserializeJson(doc, payload);
+
+        if (error) {
+            Serial.println("[MHZ19B] JSON invÃ¡lido");
+            return;
+        }
+
+        Config cfg = get_default_config();
+
+        // campos bÃ¡sicos
+        cfg.interval_ms      = doc["interval_ms"]      | cfg.interval_ms;
+        cfg.simulation       = doc["simulation"]       | cfg.simulation;
+        cfg.auto_calibration = doc["auto_calibration"] | cfg.auto_calibration;
+
+        if (!validate_config(cfg)) {
+            Serial.println("[MHZ19B] config invÃ¡lida");
+            return;
+        }
+
+        if (!sensors::apply_mhz19b_config(cfg)) {
+            Serial.println("[MHZ19B] no se pudo aplicar config");
+            return;
+        }
+
+        Serial.println("[MHZ19B] config aplicada");
+    }
+
+    void handle_read_config_command() {
+        sensors::publish_mhz19b_config();
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\mhz19b\config.cpp
+============================================================
+#include "sensors/mhz19b/config.h"
+#include <Arduino.h>
+
+namespace mhz19b {
+
+    Config get_default_config() {
+        Config cfg;
+
+        cfg.interval_ms = 20000; //20s
+        cfg.simulation = false;
+        cfg.auto_calibration = false; // robusto: evitar drift en indoor
+
+        return cfg;
+    }
+
+    bool validate_config(const Config& cfg) {
+        // intervalo
+        if (cfg.interval_ms < 1000) return false;
+        if (cfg.interval_ms > 3600000) return false;
+
+        // nada mÃ¡s que validar aquÃ­ realmente
+        return true;
+    }
+
+    void print_config(const Config& cfg) {
+        Serial.println("---- MHZ19B CONFIG ----");
+
+        Serial.print("interval_ms: ");
+        Serial.println(cfg.interval_ms);
+
+        Serial.print("simulation: ");
+        Serial.println(cfg.simulation);
+
+        Serial.print("auto_calibration: ");
+        Serial.println(cfg.auto_calibration);
+
+        Serial.println("------------------------");
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\mhz19b\config_store.cpp
+============================================================
+#include "sensors/mhz19b/config_store.h"
+
+#include <Preferences.h>
+#include <Arduino.h>
+
+namespace storage {
+
+    static Preferences prefs;
+
+    bool save_mhz19b_config(const mhz19b::Config& cfg) {
+        if (!prefs.begin("mhz19b", false)) {
+            Serial.println("[MHZ19B] no se pudo abrir NVS para escritura");
+            return false;
+        }
+
+        prefs.putULong("interval", cfg.interval_ms);
+        prefs.putBool("sim", cfg.simulation);
+        prefs.putBool("abc", cfg.auto_calibration);
+
+        prefs.end();
+        return true;
+    }
+
+    mhz19b::Config load_mhz19b_config() {
+        mhz19b::Config cfg = mhz19b::get_default_config();
+
+        if (!prefs.begin("mhz19b", false)) {
+            Serial.println("[MHZ19B] no se pudo abrir NVS, usando defaults");
+            return cfg;
+        }
+
+        cfg.interval_ms      = prefs.getULong("interval", cfg.interval_ms);
+        cfg.simulation       = prefs.getBool("sim", cfg.simulation);
+        cfg.auto_calibration = prefs.getBool("abc", cfg.auto_calibration);
+
+        prefs.end();
+
+        // validaciÃ³n obligatoria
+        if (!mhz19b::validate_config(cfg)) {
+            Serial.println("[MHZ19B] config invÃ¡lida en NVS, usando defaults");
+
+            cfg = mhz19b::get_default_config();
+
+            // persistir correcciÃ³n
+            save_mhz19b_config(cfg);
+        }
+
+        return cfg;
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\mhz19b\driver.cpp
+============================================================
+#include "sensors/mhz19b/driver.h"
+
+#include <Arduino.h>
+#include <math.h>
+
+#define MHZ19B_RX_PIN 16
+#define MHZ19B_TX_PIN 17
+#define MHZ19B_BAUD   9600
+
+namespace mhz19b {
+
+    static HardwareSerial co2_serial(1);
+
+    MHZ19BDriver::MHZ19BDriver()
+        : simulation_mode(false),
+          hardware_ready(false),
+          current_config(get_default_config()),
+          serial(nullptr) {}
+
+    bool MHZ19BDriver::begin() {
+        randomSeed(millis());
+
+        if (simulation_mode) {
+            hardware_ready = false;
+            return true;
+        }
+
+        serial = &co2_serial;
+        serial->begin(MHZ19B_BAUD, SERIAL_8N1, MHZ19B_RX_PIN, MHZ19B_TX_PIN);
+
+        delay(100); // tiempo para estabilizar UART
+
+        uint8_t response[9];
+        if (!send_read_command() || !read_response(response, 9)) {
+            Serial.println("[MHZ19B] no responde, activando simulaciÃ³n");
+            simulation_mode = true;
+            current_config.simulation = true;
+            hardware_ready = false;
+            return true;
+        }
+
+        hardware_ready = true;
+
+        apply_hardware_config();
+
+        Serial.println("[MHZ19B] inicializado");
+        return true;
+    }
+
+    void MHZ19BDriver::set_simulation_mode(bool enabled) {
+        if (enabled == simulation_mode) return;
+        simulation_mode = enabled;
+        current_config.simulation = enabled;
+
+        if (enabled) {
+            if (serial) {
+                serial->end();
+                serial = nullptr;
+                hardware_ready = false;
+            }
+        } else {
+            serial = &co2_serial;
+            serial->begin(MHZ19B_BAUD, SERIAL_8N1, MHZ19B_RX_PIN, MHZ19B_TX_PIN);
+            hardware_ready = true;  // asumimos Ã©xito
+            apply_hardware_config();
+        }
+    }
+
+    bool MHZ19BDriver::apply_config(const Config& cfg) {
+        if (!validate_config(cfg)) {
+            Serial.println("[MHZ19B] config invÃ¡lida");
+            return false;
+        }
+
+        current_config = cfg;
+        simulation_mode = cfg.simulation;
+
+        if (hardware_ready && !simulation_mode) {
+            apply_hardware_config();
+        }
+
+        return true;
+    }
+
+    Config MHZ19BDriver::get_config() const {
+        return current_config;
+    }
+
+    MHZ19BData MHZ19BDriver::read() {
+        MHZ19BData data{};
+        data.co2_ppm = -1;
+
+        if (simulation_mode) {
+            data.co2_ppm = random(400, 1500); // tÃ­pico indoor
+            return data;
+        }
+
+        if (!hardware_ready || serial == nullptr) {
+            return data;
+        }
+
+        if (!send_read_command()) {
+            Serial.println("[MHZ19B] error enviando comando");
+            return data;
+        }
+
+        uint8_t response[9];
+
+        if (!read_response(response, 9)) {
+            Serial.println("[MHZ19B] error leyendo respuesta");
+            return data;
+        }
+
+        // validar header
+        if (response[0] != 0xFF || response[1] != 0x86) {
+            Serial.println("[MHZ19B] header invÃ¡lido");
+            return data;
+        }
+
+        // validar checksum
+        uint8_t checksum = calculate_checksum(response);
+        if (checksum != response[8]) {
+            Serial.println("[MHZ19B] checksum invÃ¡lido");
+            return data;
+        }
+
+        int ppm = (response[2] << 8) | response[3];
+
+        // validaciÃ³n rango real
+        if (ppm < 0 || ppm > 5000) {
+            Serial.println("[MHZ19B] valor fuera de rango");
+            return data;
+        }
+
+        data.co2_ppm = ppm;
+        return data;
+    }
+
+    bool MHZ19BDriver::is_ready() const {
+        return hardware_ready;
+    }
+
+    // ===== internos =====
+
+    bool MHZ19BDriver::send_read_command() {
+        if (!serial) return false;
+
+        uint8_t cmd[9] = {
+            0xFF, 0x01, 0x86,
+            0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00
+        };
+
+        cmd[8] = calculate_checksum(cmd);
+
+        serial->write(cmd, 9);
+        serial->flush();
+
+        return true;
+    }
+
+    bool MHZ19BDriver::read_response(uint8_t* buffer, size_t len) {
+        if (!serial) return false;
+
+        unsigned long start = millis();
+
+        size_t index = 0;
+
+        while (index < len) {
+            if (serial->available()) {
+                buffer[index++] = serial->read();
+            }
+
+            if (millis() - start > 200) { // timeout
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    uint8_t MHZ19BDriver::calculate_checksum(uint8_t* packet) {
+        uint8_t sum = 0;
+
+        for (int i = 1; i < 8; i++) {
+            sum += packet[i];
+        }
+
+        return 0xFF - sum + 1;
+    }
+
+    void MHZ19BDriver::apply_hardware_config() {
+        if (!serial) return;
+
+        // configurar auto calibration (ABC)
+        uint8_t cmd[9] = {
+            0xFF, 0x01, 0x79,
+            static_cast<uint8_t>(current_config.auto_calibration ? 0xA0 : 0x00),
+            0x00, 0x00, 0x00, 0x00, 0x00
+        };
+
+        cmd[8] = calculate_checksum(cmd);
+
+        serial->write(cmd, 9);
+        serial->flush();
+
+        delay(50);
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\mhz19b\publisher.cpp
+============================================================
+#include "sensors/mhz19b/publisher.h"
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include "mqtt/client.h"
+#include "mqtt/telemetry_publisher.h"
+
+namespace mhz19b {
+
+    void Publisher::publish(const MHZ19BData& data, const char* topic_suffix) {
+        if (data.co2_ppm < 0) {
+            Serial.println("[MHZ19B] dato invÃ¡lido, no se publica");
+            return;
+        }
+
+        JsonDocument doc;
+        JsonObject metrics = doc.to<JsonObject>();
+        metrics["co2"] = data.co2_ppm;
+
+        publish_telemetry(topic_suffix ? topic_suffix : "mhz19b", metrics);
+
+        Serial.print("[MHZ19B] published: ");
+        serializeJson(doc, Serial);
+        Serial.println();
+    }
+
+    void Publisher::publish_config(const Config& cfg) {
+        JsonDocument doc;
+        doc["interval_ms"]      = cfg.interval_ms;
+        doc["simulation"]       = cfg.simulation;
+        doc["auto_calibration"] = cfg.auto_calibration;
+
+        char buffer[128];
+        size_t len = serializeJson(doc, buffer, sizeof(buffer));
+        if (len == 0 || len >= sizeof(buffer)) {
+            Serial.println("[MHZ19B] error serializando config");
+            return;
+        }
+
+        Serial.print("[MHZ19B] publish config: ");
+        Serial.println(buffer);
+        if (!publish_message("growbox/mhz19b/config", buffer, MessagePriority::PRIORITY_HIGH)) {
+            Serial.println("[MHZ19B] error MQTT config");
+        }
+    }
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\mhz19b\sensor.cpp
+============================================================
+#include "sensors/mhz19b/sensor.h"
+#include "sensors/mhz19b/config_store.h"
+
+#include <Arduino.h>
+
+namespace mhz19b {
+
+    void Sensor::init() {
+        // 1. cargar config persistida
+        Config cfg = storage::load_mhz19b_config();
+
+        // 2. aplicar config
+        if (!driver.apply_config(cfg)) {
+            Serial.println("[MHZ19B] config invÃ¡lida, usando defaults");
+
+            cfg = get_default_config();
+            driver.apply_config(cfg);
+
+            storage::save_mhz19b_config(cfg);
+        }
+
+        // 3. inicializar hardware o simulaciÃ³n
+        if (!driver.begin()) {
+            Serial.println("[MHZ19B] init failed");
+        } else {
+            Serial.println("[MHZ19B] ready");
+        }
+    }
+
+    MHZ19BData Sensor::read() {
+        return driver.read();
+    }
+
+    bool Sensor::apply_config(const Config& cfg) {
+        return driver.apply_config(cfg);
+    }
+
+    Config Sensor::get_config() const {
+        return driver.get_config();
+    }
+
+    void Sensor::set_simulation(bool enabled) {
+        Config cfg = driver.get_config();
+        cfg.simulation = enabled;
+
+        if (!driver.apply_config(cfg)) {
+            Serial.println("[MHZ19B] no se pudo aplicar simulation");
+        }
+    }
+
+    MHZ19BDriver& Sensor::get_driver() {
+        return driver;
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\soil_ec_rs485\command_handler.cpp
+============================================================
+#include "sensors/soil_ec_rs485/command_handler.h"
+
+#include "sensors/soil_ec_rs485/config_store.h"
+#include "sensors/sensor_manager.h"
+
+#include <ArduinoJson.h>
+#include <Arduino.h>
+
+namespace soil_ec_rs485 {
+
+    void handle_read_command() {
+        sensors::publish_soil_ec_rs485_now();
+    }
+
+    void handle_config_command(const char* payload) {
+        JsonDocument doc;
+
+        DeserializationError err = deserializeJson(doc, payload);
+        if (err) {
+            Serial.println("[SOIL_EC_RS485] JSON invÃ¡lido");
+            return;
+        }
+
+        Config cfg = storage::load_soil_ec_rs485_config();
+
+        if (!doc["interval_ms"].isNull())                 cfg.interval_ms                = doc["interval_ms"];
+        if (!doc["simulation"].isNull())                  cfg.simulation                 = doc["simulation"];
+        if (!doc["uart_port"].isNull())                   cfg.uart_port                  = doc["uart_port"];
+        if (!doc["baudrate"].isNull())                    cfg.baudrate                   = doc["baudrate"];
+        if (!doc["rx_pin"].isNull())                      cfg.rx_pin                     = doc["rx_pin"];
+        if (!doc["tx_pin"].isNull())                      cfg.tx_pin                     = doc["tx_pin"];
+        if (!doc["de_pin"].isNull())                      cfg.de_pin                     = doc["de_pin"];
+        if (!doc["re_pin"].isNull())                      cfg.re_pin                     = doc["re_pin"];
+        if (!doc["use_temperature_compensation"].isNull()) cfg.use_temperature_compensation = doc["use_temperature_compensation"];
+        if (!doc["retries"].isNull())                     cfg.retries                    = doc["retries"];
+        if (!doc["response_timeout_ms"].isNull())          cfg.response_timeout_ms        = doc["response_timeout_ms"];
+        if (!doc["modbus_slave_id"].isNull())              cfg.modbus_slave_id            = doc["modbus_slave_id"];
+        if (!doc["modbus_function"].isNull())              cfg.modbus_function            = doc["modbus_function"];
+        if (!doc["modbus_ec_register"].isNull())           cfg.modbus_ec_register         = doc["modbus_ec_register"];
+        if (!doc["modbus_temp_register"].isNull())         cfg.modbus_temp_register       = doc["modbus_temp_register"];
+        if (!doc["modbus_reg_count"].isNull())             cfg.modbus_reg_count           = doc["modbus_reg_count"];
+        if (!doc["ec_scale_factor"].isNull())              cfg.ec_scale_factor            = doc["ec_scale_factor"];
+        if (!doc["temp_scale_factor"].isNull())            cfg.temp_scale_factor          = doc["temp_scale_factor"];
+        if (!doc["read_temperature"].isNull())             cfg.read_temperature           = doc["read_temperature"];
+
+        if (!validate_config(cfg)) {
+            Serial.println("[SOIL_EC_RS485] config invÃ¡lida");
+            return;
+        }
+
+        if (!sensors::apply_soil_ec_rs485_config(cfg)) {
+            Serial.println("[SOIL_EC_RS485] no se pudo aplicar config");
+            return;
+        }
+
+        Serial.println("[SOIL_EC_RS485] config aplicada correctamente");
+    }
+
+    void handle_read_config_command() {
+        sensors::publish_soil_ec_rs485_config();
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\soil_ec_rs485\config.cpp
+============================================================
+#include "sensors/soil_ec_rs485/config.h"
+
+namespace soil_ec_rs485 {
+
+    Config get_default_config() {
+        Config cfg;
+        cfg.interval_ms = 25000;
+        cfg.simulation = false;
+
+        cfg.uart_port = 2;
+        cfg.baudrate = 9600;
+
+        cfg.rx_pin = 18;
+        cfg.tx_pin = 19;
+        cfg.de_pin = 14;
+        cfg.re_pin = 14;
+
+        cfg.use_temperature_compensation = true;
+        cfg.retries = 2;
+        cfg.response_timeout_ms = 150;
+
+        // Valores Modbus por defecto (placeholder genÃ©rico)
+        cfg.modbus_slave_id      = 1;
+        cfg.modbus_function      = 0x03;
+        cfg.modbus_ec_register   = 0x0000;
+        cfg.modbus_temp_register = 0x0001;
+        cfg.modbus_reg_count     = 2;
+        cfg.ec_scale_factor      = 100.0f;
+        cfg.temp_scale_factor    = 10.0f;
+        cfg.read_temperature     = true;
+
+        return cfg;
+    }
+
+    bool validate_config(const Config& cfg) {
+        if (cfg.interval_ms < 1000 || cfg.interval_ms > 600000) return false;
+        if (cfg.uart_port > 2) return false;
+        if (cfg.baudrate < 1200 || cfg.baudrate > 115200) return false;
+        if (cfg.rx_pin < -1 || cfg.rx_pin > 39) return false;
+        if (cfg.tx_pin < -1 || cfg.tx_pin > 39) return false;
+        if (cfg.de_pin < -1 || cfg.de_pin > 39) return false;
+        if (cfg.re_pin < -1 || cfg.re_pin > 39) return false;
+        if (cfg.retries == 0 || cfg.retries > 10) return false;
+        if (cfg.response_timeout_ms < 50 || cfg.response_timeout_ms > 2000) return false;
+
+        // Validaciones Modbus
+        if (cfg.modbus_slave_id < 1 || cfg.modbus_slave_id > 247) return false;
+        if (cfg.modbus_function != 0x03 && cfg.modbus_function != 0x04) return false;
+        // No hay restricciones fuertes para los registros, solo que no sean absurdos
+        if (cfg.modbus_ec_register > 0xFFFF) return false;
+        if (cfg.modbus_temp_register > 0xFFFF) return false;
+        if (cfg.modbus_reg_count < 1 || cfg.modbus_reg_count > 10) return false;
+        if (cfg.ec_scale_factor <= 0.0f || cfg.ec_scale_factor > 10000.0f) return false;
+        if (cfg.temp_scale_factor <= 0.0f || cfg.temp_scale_factor > 1000.0f) return false;
+
+        return true;
+    }
+
+    void print_config(const Config& cfg) {
+        Serial.println("---- SOIL EC RS485 CONFIG ----");
+
+        Serial.print("interval_ms: ");
+        Serial.println(cfg.interval_ms);
+
+        Serial.print("simulation: ");
+        Serial.println(cfg.simulation);
+
+        Serial.print("uart_port: ");
+        Serial.println(cfg.uart_port);
+
+        Serial.print("baudrate: ");
+        Serial.println(cfg.baudrate);
+
+        Serial.print("rx_pin: ");
+        Serial.println(cfg.rx_pin);
+
+        Serial.print("tx_pin: ");
+        Serial.println(cfg.tx_pin);
+
+        Serial.print("de_pin: ");
+        Serial.println(cfg.de_pin);
+
+        Serial.print("re_pin: ");
+        Serial.println(cfg.re_pin);
+
+        Serial.print("use_temp_comp: ");
+        Serial.println(cfg.use_temperature_compensation);
+
+        Serial.print("retries: ");
+        Serial.println(cfg.retries);
+
+        Serial.print("timeout_ms: ");
+        Serial.println(cfg.response_timeout_ms);
+
+        Serial.println("------------------------------");
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\soil_ec_rs485\config_store.cpp
+============================================================
+#include "sensors/soil_ec_rs485/config_store.h"
+
+#include <Preferences.h>
+#include <Arduino.h>
+
+namespace storage {
+
+    static Preferences prefs;
+    static const char* NAMESPACE = "soil_ec";
+
+    bool save_soil_ec_rs485_config(const soil_ec_rs485::Config& cfg) {
+        if (!prefs.begin(NAMESPACE, false)) {
+            Serial.println("[SOIL_EC_RS485] error abriendo NVS (write)");
+            return false;
+        }
+
+        prefs.putULong("interval", cfg.interval_ms);
+        prefs.putBool("sim", cfg.simulation);
+
+        prefs.putUChar("uart", cfg.uart_port);
+        prefs.putULong("baud", cfg.baudrate);
+
+        prefs.putChar("rx", cfg.rx_pin);
+        prefs.putChar("tx", cfg.tx_pin);
+        prefs.putChar("de", cfg.de_pin);
+        prefs.putChar("re", cfg.re_pin);
+
+        prefs.putBool("temp_comp", cfg.use_temperature_compensation);
+
+        prefs.putUChar("retries", cfg.retries);
+        prefs.putUShort("timeout", cfg.response_timeout_ms);
+
+        prefs.putUChar("mb_slave", cfg.modbus_slave_id);
+        prefs.putUChar("mb_func", cfg.modbus_function);
+        prefs.putUShort("mb_ec_reg", cfg.modbus_ec_register);
+        prefs.putUShort("mb_temp_reg", cfg.modbus_temp_register);
+        prefs.putUChar("mb_reg_cnt", cfg.modbus_reg_count);
+        prefs.putFloat("ec_scale", cfg.ec_scale_factor);
+        prefs.putFloat("temp_scale", cfg.temp_scale_factor);
+        prefs.putBool("read_temp", cfg.read_temperature);
+
+        prefs.end();
+        return true;
+    }
+
+    soil_ec_rs485::Config load_soil_ec_rs485_config() {
+        soil_ec_rs485::Config cfg = soil_ec_rs485::get_default_config();
+
+        if (!prefs.begin(NAMESPACE, false)) {
+            Serial.println("[SOIL_EC_RS485] NVS no disponible, usando defaults");
+            return cfg;
+        }
+
+        cfg.interval_ms = prefs.getULong("interval", cfg.interval_ms);
+        cfg.simulation = prefs.getBool("sim", cfg.simulation);
+
+        cfg.uart_port = prefs.getUChar("uart", cfg.uart_port);
+        cfg.baudrate = prefs.getULong("baud", cfg.baudrate);
+
+        cfg.rx_pin = prefs.getChar("rx", cfg.rx_pin);
+        cfg.tx_pin = prefs.getChar("tx", cfg.tx_pin);
+        cfg.de_pin = prefs.getChar("de", cfg.de_pin);
+        cfg.re_pin = prefs.getChar("re", cfg.re_pin);
+
+        cfg.use_temperature_compensation =
+            prefs.getBool("temp_comp", cfg.use_temperature_compensation);
+
+        cfg.retries = prefs.getUChar("retries", cfg.retries);
+        cfg.response_timeout_ms = prefs.getUShort("timeout", cfg.response_timeout_ms);
+
+        cfg.modbus_slave_id      = prefs.getUChar("mb_slave", cfg.modbus_slave_id);
+        cfg.modbus_function      = prefs.getUChar("mb_func", cfg.modbus_function);
+        cfg.modbus_ec_register   = prefs.getUShort("mb_ec_reg", cfg.modbus_ec_register);
+        cfg.modbus_temp_register = prefs.getUShort("mb_temp_reg", cfg.modbus_temp_register);
+        cfg.modbus_reg_count     = prefs.getUChar("mb_reg_cnt", cfg.modbus_reg_count);
+        cfg.ec_scale_factor      = prefs.getFloat("ec_scale", cfg.ec_scale_factor);
+        cfg.temp_scale_factor    = prefs.getFloat("temp_scale", cfg.temp_scale_factor);
+        cfg.read_temperature     = prefs.getBool("read_temp", cfg.read_temperature);
+
+        prefs.end();
+
+        if (!soil_ec_rs485::validate_config(cfg)) {
+            Serial.println("[SOIL_EC_RS485] config invÃ¡lida en NVS -> reset defaults");
+            cfg = soil_ec_rs485::get_default_config();
+            save_soil_ec_rs485_config(cfg);
+        }
+
+        return cfg;
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\soil_ec_rs485\driver.cpp
+============================================================
+#include "sensors/soil_ec_rs485/driver.h"
+
+#include <math.h>
+
+namespace soil_ec_rs485 {
+
+    SoilECDriver::SoilECDriver()
+        : simulation_mode(false),
+        hardware_ready(false),
+        current_config(get_default_config()),
+        serial(nullptr) {}
+
+    void SoilECDriver::release_serial() {
+        if (serial != nullptr) {
+            serial->end();
+            delete serial;
+            serial = nullptr;
+        }
+    }
+
+    void SoilECDriver::set_transmit_mode() {
+        if (current_config.de_pin >= 0) {
+            digitalWrite(current_config.de_pin, HIGH);
+        }
+
+        if (current_config.re_pin >= 0) {
+            digitalWrite(current_config.re_pin, HIGH);
+        }
+    }
+
+    void SoilECDriver::set_receive_mode() {
+        if (current_config.de_pin >= 0) {
+            digitalWrite(current_config.de_pin, LOW);
+        }
+
+        if (current_config.re_pin >= 0) {
+            digitalWrite(current_config.re_pin, LOW);
+        }
+    }
+
+    bool SoilECDriver::begin() {
+        randomSeed(millis());
+
+        if (simulation_mode) {
+            release_serial();
+            hardware_ready = false;
+            return true;
+        }
+
+        release_serial();
+        serial = new HardwareSerial(current_config.uart_port);
+        if (serial == nullptr) {
+            Serial.println("[SOIL_EC_RS485] no se pudo crear HardwareSerial, activando simulaciÃ³n");
+            simulation_mode = true;
+            current_config.simulation = true;
+            hardware_ready = false;
+            return true;
+        }
+
+        if (current_config.de_pin >= 0) {
+            pinMode(current_config.de_pin, OUTPUT);
+        }
+
+        if (current_config.re_pin >= 0) {
+            pinMode(current_config.re_pin, OUTPUT);
+        }
+
+        set_receive_mode();
+
+        serial->begin(
+            current_config.baudrate,
+            SERIAL_8N1,
+            current_config.rx_pin,
+            current_config.tx_pin
+        );
+
+        delay(300);
+        clear_serial();
+
+        hardware_ready = true;
+
+        Serial.println("[SOIL_EC_RS485] iniciado");
+        return true;
+    }
+
+    void SoilECDriver::set_simulation_mode(bool enabled) {
+        simulation_mode = enabled;
+        current_config.simulation = enabled;
+    }
+
+    bool SoilECDriver::apply_config(const Config& cfg) {
+        if (!validate_config(cfg)) {
+            Serial.println("[SOIL_EC_RS485] config invÃ¡lida");
+            return false;
+        }
+
+        const bool hardware_changed =
+            current_config.uart_port != cfg.uart_port ||
+            current_config.baudrate != cfg.baudrate ||
+            current_config.rx_pin != cfg.rx_pin ||
+            current_config.tx_pin != cfg.tx_pin ||
+            current_config.de_pin != cfg.de_pin ||
+            current_config.re_pin != cfg.re_pin;
+
+        const bool simulation_changed = current_config.simulation != cfg.simulation;
+
+        current_config = cfg;
+        simulation_mode = cfg.simulation;
+
+        if (simulation_mode) {
+            release_serial();
+            hardware_ready = false;
+            return true;
+        }
+
+        if (hardware_ready && (hardware_changed || simulation_changed)) {
+            return begin();
+        }
+
+        if (!hardware_ready && simulation_changed) {
+            return begin();
+        }
+
+        return true;
+    }
+
+    Config SoilECDriver::get_config() const {
+        return current_config;
+    }
+
+    void SoilECDriver::clear_serial() {
+        if (!serial) return;
+
+        while (serial->available()) {
+            serial->read();
+        }
+    }
+
+    bool SoilECDriver::send_request() {
+        if (!serial) return false;
+
+        uint8_t request[8];
+        request[0] = current_config.modbus_slave_id;
+        request[1] = current_config.modbus_function;
+        request[2] = static_cast<uint8_t>(current_config.modbus_ec_register >> 8);
+        request[3] = static_cast<uint8_t>(current_config.modbus_ec_register & 0xFF);
+        request[4] = static_cast<uint8_t>(current_config.modbus_reg_count >> 8);
+        request[5] = static_cast<uint8_t>(current_config.modbus_reg_count & 0xFF);
+
+        uint16_t crc = calculate_crc(request, 6);
+        request[6] = static_cast<uint8_t>(crc & 0xFF);
+        request[7] = static_cast<uint8_t>((crc >> 8) & 0xFF);
+
+        set_transmit_mode();
+        serial->write(request, sizeof(request));
+        serial->flush();
+        delay(2);
+        set_receive_mode();
+        return true;
+    }
+
+    bool SoilECDriver::read_response(uint8_t* buffer, size_t len) {
+        if (!serial || buffer == nullptr || len == 0) return false;
+
+        unsigned long start = millis();
+        size_t index = 0;
+
+        while ((millis() - start) < current_config.response_timeout_ms) {
+            while (serial->available() && index < len) {
+                buffer[index++] = static_cast<uint8_t>(serial->read());
+            }
+
+            if (index >= len) {
+                return true;
+            }
+
+            delay(1);
+        }
+
+        return false;
+    }
+
+    uint16_t SoilECDriver::calculate_crc(const uint8_t* data, size_t len) const {
+        uint16_t crc = 0xFFFF;
+
+        for (size_t i = 0; i < len; ++i) {
+            crc ^= data[i];
+
+            for (uint8_t j = 0; j < 8; ++j) {
+                if (crc & 0x0001) {
+                    crc >>= 1;
+                    crc ^= 0xA001;
+                } else {
+                    crc >>= 1;
+                }
+            }
+        }
+
+        return crc;
+    }
+
+    SoilECDriver::~SoilECDriver() {
+        release_serial();
+    }
+
+    SoilECData SoilECDriver::read() {
+        SoilECData data{};
+        data.ec_raw = NAN;
+        data.temperature = NAN;
+
+        if (simulation_mode) {
+            data.ec_raw = random(50, 250) / 100.0f;
+            data.temperature = random(180, 300) / 10.0f;
+            return data;
+        }
+
+        if (!hardware_ready || !serial) return data;
+
+        for (uint8_t attempt = 0; attempt < current_config.retries; attempt++) {
+            clear_serial();
+            if (!send_request()) continue;
+
+            // TamaÃ±o de respuesta: slave(1) + func(1) + byte_count(1) + datos(2*reg_count) + CRC(2)
+            size_t response_len = 3 + 2 * current_config.modbus_reg_count + 2;
+            uint8_t buffer[response_len];
+            memset(buffer, 0, response_len);
+
+            if (!read_response(buffer, response_len)) continue;
+
+            // Verificar slave id y funciÃ³n
+            if (buffer[0] != current_config.modbus_slave_id ||
+                buffer[1] != current_config.modbus_function) continue;
+
+            uint8_t byte_count = buffer[2];
+            if (byte_count != 2 * current_config.modbus_reg_count) continue;
+
+            // Verificar CRC
+            uint16_t received_crc = buffer[response_len - 2] | (buffer[response_len - 1] << 8);
+            uint16_t calculated_crc = calculate_crc(buffer, response_len - 2);
+            if (received_crc != calculated_crc) {
+                Serial.println("[SOIL_EC_RS485] CRC invÃ¡lido");
+                continue;
+            }
+
+            // Parsear EC (primer registro)
+            uint16_t ec_raw_int = (buffer[3] << 8) | buffer[4];
+            data.ec_raw = ec_raw_int / current_config.ec_scale_factor;
+
+            // Parsear temperatura si estÃ¡ habilitada y hay al menos 2 registros
+            if (current_config.read_temperature && current_config.modbus_reg_count >= 2) {
+                uint16_t temp_int = (buffer[5] << 8) | buffer[6];
+                data.temperature = temp_int / current_config.temp_scale_factor;
+            }
+
+            // ValidaciÃ³n de rangos
+            if (data.ec_raw < 0.0f || data.ec_raw > 23.0f) data.ec_raw = NAN;
+            if (data.temperature < -40.0f || data.temperature > 85.0f) data.temperature = NAN;
+
+            return data;
+        }
+
+        Serial.println("[SOIL_EC_RS485] activando simulaciÃ³n por fallos continuos");
+        simulation_mode = true;
+        current_config.simulation = true;
+
+        // Ahora devolvemos datos simulados en esta misma llamada
+        data.ec_raw = random(50, 250) / 100.0f;
+        data.temperature = random(180, 300) / 10.0f;
+        return data;
+    }
+
+    bool SoilECDriver::is_ready() const {
+        return hardware_ready;
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\soil_ec_rs485\publisher.cpp
+============================================================
+#include "sensors/soil_ec_rs485/publisher.h"
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <math.h>
+#include "mqtt/client.h"
+#include "mqtt/telemetry_publisher.h"
+
+namespace soil_ec_rs485 {
+
+    void Publisher::publish(const SoilECData& data) {
+        if (isnan(data.ec_raw)) {
+            Serial.println("[SOIL_EC_RS485] EC invÃ¡lido, no se publica");
+            return;
+        }
+
+        JsonDocument doc;
+        JsonObject metrics = doc.to<JsonObject>();
+        metrics["ec"] = data.ec_raw;
+        if (!isnan(data.temperature)) {
+            metrics["temperature"] = data.temperature;
+        } else {
+            metrics["temperature"] = nullptr;
+        }
+
+        publish_telemetry("soil_ec", metrics);
+
+        Serial.print("[SOIL_EC_RS485] published: ");
+        serializeJson(doc, Serial);
+        Serial.println();
+    }
+
+    void Publisher::publish_config(const Config& cfg) {
+        JsonDocument doc;
+        doc["interval_ms"]                = cfg.interval_ms;
+        doc["simulation"]                 = cfg.simulation;
+        doc["uart_port"]                  = cfg.uart_port;
+        doc["baudrate"]                   = cfg.baudrate;
+        doc["rx_pin"]                     = cfg.rx_pin;
+        doc["tx_pin"]                     = cfg.tx_pin;
+        doc["de_pin"]                     = cfg.de_pin;
+        doc["re_pin"]                     = cfg.re_pin;
+        doc["use_temperature_compensation"] = cfg.use_temperature_compensation;
+        doc["retries"]                    = cfg.retries;
+        doc["response_timeout_ms"]        = cfg.response_timeout_ms;
+
+        // Campos Modbus
+        doc["modbus_slave_id"]      = cfg.modbus_slave_id;
+        doc["modbus_function"]      = cfg.modbus_function;
+        doc["modbus_ec_register"]   = cfg.modbus_ec_register;
+        doc["modbus_temp_register"] = cfg.modbus_temp_register;
+        doc["modbus_reg_count"]     = cfg.modbus_reg_count;
+        doc["ec_scale_factor"]      = cfg.ec_scale_factor;
+        doc["temp_scale_factor"]    = cfg.temp_scale_factor;
+        doc["read_temperature"]     = cfg.read_temperature;
+
+        char buffer[384];
+        size_t len = serializeJson(doc, buffer, sizeof(buffer));
+        if (len == 0 || len >= sizeof(buffer)) {
+            Serial.println("[SOIL_EC_RS485] error serializando config");
+            return;
+        }
+
+        Serial.print("[SOIL_EC_RS485] publish config: ");
+        Serial.println(buffer);
+        if (!publish_message("growbox/soil_ec_rs485/config", buffer, MessagePriority::PRIORITY_HIGH)) {
+            Serial.println("[SOIL_EC_RS485] error MQTT config");
+        }
+    }
+
+}
+
+============================================================
+Archivo: :\Users\desar\OneDrive\Desktop\jk\tesis\code\esp32\src\sensors\soil_ec_rs485\sensor.cpp
+============================================================
+#include "sensors/soil_ec_rs485/sensor.h"
+#include "sensors/soil_ec_rs485/config_store.h"
+
+#include <Arduino.h>
+
+namespace soil_ec_rs485 {
+
+    void Sensor::init() {
+        config = storage::load_soil_ec_rs485_config();
+
+        if (!validate_config(config)) {
+            Serial.println("[SOIL_EC_RS485] config invÃ¡lida en NVS, usando defaults");
+            config = get_default_config();
+            storage::save_soil_ec_rs485_config(config);
+        }
+
+        if (!driver.apply_config(config)) {
+            Serial.println("[SOIL_EC_RS485] no se pudo aplicar config");
+            config = get_default_config();
+            driver.apply_config(config);
+            storage::save_soil_ec_rs485_config(config);
+        }
+
+        config = driver.get_config();
+
+        if (!driver.begin()) {
+            Serial.println("[SOIL_EC_RS485] init failed");
+        } else {
+            Serial.println("[SOIL_EC_RS485] ready");
+        }
+    }
+
+    SoilECData Sensor::read() {
+        return driver.read();
+    }
+
+    bool Sensor::begin() {
+        return driver.begin();
+    }
+
+    bool Sensor::apply_config(const Config& cfg) {
+        if (!driver.apply_config(cfg)) {
+            return false;
+        }
+
+        config = driver.get_config();
+
+        if (!storage::save_soil_ec_rs485_config(config)) {
+            Serial.println("[SOIL_EC_RS485] no se pudo guardar config");
+            return false;
+        }
+
+        return true;
+    }
+
+    Config Sensor::get_config() const {
+        return driver.get_config();
+    }
+
+    void Sensor::set_simulation(bool enabled) {
+        Config cfg = driver.get_config();
+        cfg.simulation = enabled;
+
+        if (!driver.apply_config(cfg)) {
+            Serial.println("[SOIL_EC_RS485] no se pudo aplicar simulation");
+            return;
+        }
+
+        config = driver.get_config();
+
+        if (!storage::save_soil_ec_rs485_config(config)) {
+            Serial.println("[SOIL_EC_RS485] no se pudo guardar simulation");
+        }
+
+        if (!enabled && !driver.is_ready()) {
+            driver.begin();
+        }
+    }
+
+    SoilECDriver& Sensor::get_driver() {
+        return driver;
+    }
+
+}
+
