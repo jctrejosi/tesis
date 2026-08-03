@@ -122,7 +122,153 @@ Por otro lado, la proliferación de prototipos basados en microcontroladores (p.
 - **Generación de un conjunto de datos experimentales estandarizados**, útiles para análisis de comportamiento, evaluación de estrategias de control y desarrollo de algoritmos basados en inteligencia artificial para entregar información al usuario.  
 - **Propuesta de arquitectura escalable y modular**, con criterios técnicos para diseño, mantenimiento y expansión del sistema en función de nuevas variables de monitoreo.
 
-### 10. Bibliografía
+### 10. Sensores del ESP32
+
+El firmware del ESP32 controla **4 sensores** y un **módulo de 4 relés** para actuadores. Cada sensor sigue un patrón modular (driver → config → sensor → publisher → command_handler) y se comunica con el backend vía MQTT.
+
+#### Resumen de sensores
+
+| # | Sensor | Alias MQTT | Interfaz | Intervalo | Variables que mide |
+|---|--------|------------|----------|-----------|--------------------|
+| 1 | **BME680** | `bme680` | I²C | 15 s | Temperatura, Humedad, Presión atmosférica, Resistencia de gas (VOC/IAQ) |
+| 2 | **AS7341** | `as7341` | I²C | configurable | 10 canales espectrales (F1 415nm → F8 680nm + Clear + NIR) |
+| 3 | **MH-Z19B** | `mhz19b` | UART | 20 s | CO₂ (ppm) |
+| 4 | **Soil EC RS485** | `soil_ec` | RS485 (UART2) | 25 s | Conductividad eléctrica (mS/cm), Temperatura del suelo |
+
+---
+
+#### 1. BME680 — Sensor ambiental
+
+| Parámetro configurable | Default | Descripción |
+|---|---|---|
+| `interval_ms` | 15000 | Frecuencia de lectura (ms) |
+| `simulation` | false | Modo simulación (sin hardware) |
+| `temp_oversample` | 8x | Oversampling de temperatura |
+| `hum_oversample` | 2x | Oversampling de humedad |
+| `press_oversample` | 4x | Oversampling de presión |
+| `iir_filter` | 3 | Filtro IIR (0-3) |
+| `gas_heater_temp` | 320 °C | Temperatura del calentador de gas |
+| `gas_heater_duration` | 150 ms | Duración del calentador |
+
+> 📤 **Publica:** `growbox/bme680/data`  
+> 📥 **Recibe:** `growbox/bme680/read`, `growbox/bme680/config`
+
+---
+
+#### 2. AS7341 — Sensor espectral (10 canales)
+
+| Parámetro configurable | Default | Descripción |
+|---|---|---|
+| `interval_ms` | configurable | Frecuencia de lectura (ms) |
+| `simulation` | false | Modo simulación |
+| `atime` | configurable | Tiempo de integración ADC |
+| `astep` | configurable | Step size de integración |
+| `gain` | configurable | Ganancia del sensor |
+| `led_enabled` | configurable | LED de iluminación integrado |
+| `led_current_ma` | configurable | Corriente del LED (mA) |
+
+**Canales espectrales:**
+
+| Canal | Longitud de onda | Tipo |
+|---|---|---|
+| F1 | 415 nm | Violeta |
+| F2 | 445 nm | Azul |
+| F3 | 480 nm | Cyan |
+| F4 | 515 nm | Verde |
+| F5 | 555 nm | Amarillo |
+| F6 | 590 nm | Naranja |
+| F7 | 630 nm | Rojo |
+| F8 | 680 nm | Rojo profundo |
+| Clear | — | Sin filtro (referencia) |
+| NIR | — | Infrarrojo cercano |
+
+> 📤 **Publica:** `growbox/as7341/data`  
+> 📥 **Recibe:** `growbox/as7341/read`, `growbox/as7341/config`
+
+---
+
+#### 3. MH-Z19B — Sensor de CO₂
+
+| Parámetro configurable | Default | Descripción |
+|---|---|---|
+| `interval_ms` | 20000 | Frecuencia de lectura (ms) |
+| `simulation` | false | Modo simulación |
+| `auto_calibration` | false | Calibración automática (ABC) |
+
+> 📤 **Publica:** `growbox/mhz19b/data`  
+> 📥 **Recibe:** `growbox/mhz19b/read`, `growbox/mhz19b/config`
+
+---
+
+#### 4. Soil EC RS485 — Sensor de suelo
+
+| Parámetro configurable | Default | Descripción |
+|---|---|---|
+| `interval_ms` | 25000 | Frecuencia de lectura (ms) |
+| `simulation` | false | Modo simulación |
+| `modbus_slave_id` | 1 | Dirección Modbus del esclavo |
+| `modbus_function` | 0x03 | Código de función Modbus |
+| `modbus_ec_register` | 0x0000 | Dirección del registro EC |
+| `modbus_temp_register` | 0x0001 | Dirección del registro de temperatura |
+| `ec_scale_factor` | 100.0 | Factor de escala EC (entero → mS/cm) |
+| `temp_scale_factor` | 10.0 | Factor de escala temperatura (entero → °C) |
+| `read_temperature` | true | Leer también temperatura del suelo |
+| `uart_port` | 2 | Puerto UART |
+| `baudrate` | 9600 | Velocidad de comunicación |
+| `rx_pin` / `tx_pin` | 16 / 17 | Pines RX/TX |
+| `de_pin` / `re_pin` | -1 | Control RS485 (opcional) |
+| `use_temperature_compensation` | true | Compensación por temperatura |
+| `retries` | 3 | Reintentos de lectura |
+| `response_timeout_ms` | 200 | Timeout de respuesta (ms) |
+
+> 📤 **Publica:** `growbox/soil_ec/data`  
+> 📥 **Recibe:** `growbox/soil_ec/read`, `growbox/soil_ec/config`
+
+---
+
+#### ⚡ Actuador de Relé (4 canales)
+
+Además de los sensores, el ESP32 controla un módulo de relés de 4 canales para actuar sobre el entorno de cultivo.
+
+| Parámetro configurable | Descripción |
+|---|---|
+| `pin_in1` – `pin_in4` | Pines GPIO para cada canal |
+| `inverted` | Lógica invertida (activo bajo) |
+| `simulation` | Modo simulación |
+| `interval_ms` | Frecuencia de publicación de estado |
+| `publish_interval_ms` | Intervalo de publicación independiente |
+
+**Canales mapeados:**
+
+| Canal | Nombre | Descripción |
+|---|---|---|
+| 1 | `canal_1` | Ventilación principal |
+| 2 | `canal_2` | Iluminación principal |
+| 3 | `canal_3` | Riego principal |
+| 4 | `canal_4` | Libre / reserva |
+
+> 📤 **Publica:** `growbox/relay/<channel>/state`  
+> 📥 **Recibe:** `growbox/relay/<command>`
+
+---
+
+#### 🎛️ Flujo de control
+
+La configuración de sensores fluye desde el dashboard web hasta el ESP32:
+
+```
+Dashboard Web → PUT /config/sensors/:alias → Backend → MQTT growbox/<alias>/config → ESP32 → apply_config()
+```
+
+Y la telemetría se publica cíclicamente:
+
+```
+ESP32 → scheduler (intervalo individual) → leer sensor → MQTT growbox/<alias>/data → Backend → TimescaleDB
+```
+
+También se soportan lecturas bajo demanda vía `POST /config/sensors/:alias/read` → `growbox/<alias>/read`.
+
+### 11. Bibliografía
 
 - Cole, K. S., & Cole, R. H. (1941). Dispersion and absorption in dielectrics. I. Alternating-current characteristics. *Journal of Chemical Physics*, 9, 341–351.
 
