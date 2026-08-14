@@ -1,0 +1,2156 @@
+----- app.module.ts -----
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { DatabaseModule } from './db/database.module';
+import { HealthModule } from './health/health.module';
+import { MqttModule } from './mqtt/mqtt.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
+import { SeedModule } from './seed/seed.module';
+import { DevicesModule } from './devices/devices.module';
+import { SensorsModule } from './sensors/sensors.module';
+import { ConfigModule as AppConfigModule } from './config/config.module';
+import { ActuatorsModule } from './actuators/actuators.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    DatabaseModule,
+    SeedModule,
+    MqttModule,
+    TelemetryModule,
+    DevicesModule,
+    SensorsModule,
+    AppConfigModule, // renombrado para no chocar con @nestjs/config
+    ActuatorsModule,
+    AnalyticsModule,
+    HealthModule,
+  ],
+})
+export class AppModule {}
+----- main.ts -----
+import 'dotenv/config';
+import { NestFactory } from '@nestjs/core';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  // Configuración de Swagger
+  const config = new DocumentBuilder()
+    .setTitle('CEA - Agricultura de Ambiente Controlado')
+    .setDescription(
+      'API para monitoreo, automatización y análisis predictivo de cultivos',
+    )
+    .setVersion('0.1.0')
+    .addTag('health', 'Endpoint de salud del sistema')
+    .addTag('telemetry', 'Consulta de telemetría de sensores')
+    .addTag('devices', 'Gestión de dispositivos ESP32')
+    .addTag('sensors', 'Gestión de sensores')
+    .addTag('actuators', 'Control de actuadores')
+    .addTag('config', 'Configuración de sensores')
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document); // Swagger UI en /api/docs
+
+  await app.listen(3000);
+
+  console.log(`Aplicación corriendo en http://localhost:3000`);
+  console.log(`Swagger UI disponible en http://localhost:3000/api/docs`);
+}
+bootstrap();
+----- actuators.controller.ts -----
+import { Controller, Get, Post, Param, Body, Inject } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiParam, ApiBody } from '@nestjs/swagger';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
+import { DRIZZLE } from '../db/database.module';
+import { MqttService } from '../mqtt/mqtt.service';
+import * as schema from '../db/schema';
+
+type ActuatorCommandPayload = {
+  state?: string;
+  channel?: number; // <-- agregado para relay
+  [key: string]: unknown;
+};
+
+@ApiTags('actuators')
+@Controller('actuators')
+export class ActuatorsController {
+  constructor(
+    private readonly mqttService: MqttService,
+    @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
+  ) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Listar todos los actuadores registrados' })
+  async list() {
+    const result = await this.db.execute(sql`
+      SELECT a.*, d.name as device_name
+      FROM actuators a
+      JOIN devices d ON a.device_id = d.id
+      ORDER BY a.id
+    `);
+    return result.rows;
+  }
+
+  @Get(':name')
+  @ApiOperation({ summary: 'Obtener estado actual de un actuador por nombre' })
+  @ApiParam({ name: 'name', example: 'ventilacion_principal' })
+  async getState(@Param('name') name: string) {
+    const result = await this.db.execute(sql`
+      SELECT * FROM actuators WHERE name = ${name} LIMIT 1
+    `);
+    return result.rows[0] || { error: 'Actuador no encontrado' };
+  }
+
+  @Post(':name/command')
+  @ApiOperation({ summary: 'Enviar comando a un actuador vía MQTT' })
+  @ApiParam({ name: 'name', example: 'ventilacion_principal' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', example: 'set' },
+        payload: {
+          type: 'object',
+          example: { state: 'ON', channel: 1, speed: 80 },
+        },
+      },
+    },
+  })
+  async sendCommand(
+    @Param('name') name: string,
+    @Body() body: { command: string; payload?: ActuatorCommandPayload },
+  ) {
+    // 1. Obtener el actuador
+    const actuator = await this.db.execute<{
+      type: string;
+      state: Record<string, unknown> | null;
+      id: number;
+    }>(sql`
+      SELECT id, type, state FROM actuators WHERE name = ${name} LIMIT 1
+    `);
+    if (!actuator.rows.length) {
+      return { error: 'Actuador no encontrado' };
+    }
+    const actuatorType = actuator.rows[0].type;
+    const actuatorId = actuator.rows[0].id;
+    const currentState: Record<string, unknown> = actuator.rows[0].state ?? {};
+
+    // 2. Validación especial para relay
+    if (actuatorType === 'relay' && body.command === 'set') {
+      const payload: ActuatorCommandPayload = body.payload ?? {};
+      if (
+        typeof payload.channel !== 'number' ||
+        payload.channel < 1 ||
+        payload.channel > 4
+      ) {
+        return { error: 'Para relay, el payload debe incluir channel (1-4)' };
+      }
+      if (
+        typeof payload.state !== 'string' ||
+        !['ON', 'OFF'].includes(payload.state)
+      ) {
+        return {
+          error: 'Para relay, el payload debe incluir state ("ON" o "OFF")',
+        };
+      }
+    }
+
+    // 3. Enviar comando MQTT
+    this.mqttService.sendActuatorCommand(
+      actuatorType,
+      body.command,
+      body.payload ?? {},
+    );
+
+    // 4. Actualizar estado en la base de datos (solo si es comando 'set')
+    if (body.command === 'set' && body.payload) {
+      const payload = body.payload;
+
+      // Construir el nuevo estado respetando el tipo de actuador
+      let newState: Record<string, unknown>;
+
+      if (actuatorType === 'relay') {
+        // Estado simple para un actuador que representa un solo canal
+        newState = { state: payload.state };
+      } else {
+        newState = { ...payload };
+      }
+
+      // Guardar evento de cambio
+      await this.db.execute(sql`
+        INSERT INTO actuator_events (actuator_id, old_state, new_state, reason)
+        VALUES (
+          ${actuatorId},
+          ${JSON.stringify(currentState)}::jsonb,
+          ${JSON.stringify(newState)}::jsonb,
+          'manual'
+        )
+      `);
+
+      // Actualizar estado del actuador
+      await this.db.execute(sql`
+        UPDATE actuators SET state = ${JSON.stringify(newState)}::jsonb
+        WHERE id = ${actuatorId}
+      `);
+
+      return {
+        status: 'ok',
+        message: `Comando ${body.command} enviado a ${name}`,
+        new_state: newState,
+      };
+    }
+
+    return {
+      status: 'ok',
+      message: `Comando ${body.command} enviado a ${name}`,
+    };
+  }
+}
+----- actuators.module.ts -----
+import { Module } from '@nestjs/common';
+import { ActuatorsController } from './actuators.controller';
+
+@Module({
+  controllers: [ActuatorsController],
+})
+export class ActuatorsModule {}
+----- analytics.controller.ts -----
+import { Controller, Get, Param, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { AnalyticsService } from './analytics.service';
+
+@ApiTags('analytics')
+@Controller('analytics')
+export class AnalyticsController {
+  constructor(private readonly analyticsService: AnalyticsService) {}
+
+  @Get(':alias/:metricName')
+  @ApiOperation({ summary: 'Obtener métricas derivadas de un sensor' })
+  @ApiParam({ name: 'alias', example: 'as7341' })
+  @ApiParam({ name: 'metricName', example: 'ndvi' })
+  @ApiQuery({ name: 'limit', required: false, example: 100 })
+  async getDerived(
+    @Param('alias') alias: string,
+    @Param('metricName') metricName: string,
+    @Query('limit') limit = 100,
+  ) {
+    return this.analyticsService.getDerived(alias, metricName, +limit);
+  }
+}
+----- analytics.module.ts -----
+import { Module } from '@nestjs/common';
+import { AnalyticsService } from './analytics.service';
+import { AnalyticsController } from './analytics.controller';
+
+@Module({
+  providers: [AnalyticsService],
+  exports: [AnalyticsService],
+  controllers: [AnalyticsController],
+})
+export class AnalyticsModule {}
+----- analytics.service.ts -----
+import { Injectable, Inject, Logger } from '@nestjs/common';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
+
+import { DRIZZLE } from '../db/database.module';
+import * as schema from '../db/schema';
+
+import { calculateAs7341 } from './formulas/as7341.formula';
+import { calculateBme680 } from './formulas/bme680.formula';
+import { calculateMhz19b } from './formulas/mhz19b.formula';
+import { calculateSoilEc } from './formulas/soil_ec.formula';
+
+@Injectable()
+export class AnalyticsService {
+  private readonly logger = new Logger(AnalyticsService.name);
+
+  private lastCo2Reading: {
+    value: number;
+    time: string;
+  } | null = null;
+
+  constructor(
+    @Inject(DRIZZLE)
+    private readonly db: NodePgDatabase<typeof schema>,
+  ) {}
+
+  async processSensorData(
+    sensorAlias: string,
+    sensorId: number,
+    deviceId: number,
+    sampleId: string,
+    time: string,
+    metrics: Record<string, number>,
+  ): Promise<void> {
+    let derived: Record<string, number> = {};
+
+    switch (sensorAlias) {
+      case 'as7341':
+        derived = calculateAs7341(metrics) as unknown as Record<string, number>;
+        break;
+
+      case 'bme680':
+        derived = calculateBme680(metrics) as unknown as Record<string, number>;
+        break;
+
+      case 'mhz19b': {
+        const currentCo2 = metrics.co2;
+        if (currentCo2 !== undefined) {
+          const prev = this.lastCo2Reading;
+          const timeDiff = prev
+            ? (new Date(time).getTime() - new Date(prev.time).getTime()) / 1000
+            : 0;
+          const result = calculateMhz19b(
+            currentCo2,
+            prev?.value ?? null,
+            timeDiff,
+          );
+          if (result.co2_change_rate != null) {
+            derived.co2_change_rate = result.co2_change_rate;
+          }
+          this.lastCo2Reading = { value: currentCo2, time };
+        }
+        break;
+      }
+
+      case 'soil_ec':
+        derived = calculateSoilEc(metrics) as unknown as Record<string, number>;
+        break;
+    }
+
+    // Fusionar crudos + derivados
+    const allMetrics = { ...metrics, ...derived };
+
+    const entries: Array<[string, number]> = Object.entries(allMetrics).filter(
+      (entry): entry is [string, number] => entry[1] != null,
+    );
+
+    for (const [metricName, value] of entries) {
+      await this.db.execute(sql`
+        INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value)
+        VALUES (${time}::timestamptz, ${sampleId}::uuid, ${deviceId}, ${sensorId}, ${metricName}, ${value})
+        ON CONFLICT (time, sample_id, device_id, sensor_id, metric_name) DO NOTHING
+      `);
+    }
+
+    if (entries.length > 0) {
+      this.logger.debug(
+        `Insertadas ${entries.length} métricas (crudos + derivados) de ${sensorAlias}`,
+      );
+    }
+  }
+
+  async getDerived(
+    sensorAlias: string,
+    metricName: string,
+    limit = 100,
+  ): Promise<{ time: string; value: number }[]> {
+    try {
+      const result = await this.db.execute<{ time: string; value: number }>(sql`
+        SELECT t.time, t.value
+        FROM telemetry t
+        JOIN sensors s ON s.id = t.sensor_id
+        WHERE s.alias = ${sensorAlias} AND t.metric_name = ${metricName}
+        ORDER BY t.time DESC
+        LIMIT ${limit}
+      `);
+      return result.rows;
+    } catch (err) {
+      this.logger.error(
+        `Error obteniendo derivados de ${sensorAlias}/${metricName}`,
+        err,
+      );
+      return [];
+    }
+  }
+}
+----- as7341.formula.ts -----
+export interface As7341Derived {
+  ndvi: number | null;
+  par: number | null;
+  lux_estimado: number | null;
+  red_edge_ratio: number | null;
+  chlorophyll_index: number | null;
+  nir_reflectance: number | null;
+  clear_par_ratio: number | null;
+}
+
+export function calculateAs7341(
+  metrics: Record<string, number>,
+): As7341Derived {
+  const f1 = metrics['f1_415nm'];
+  const f2 = metrics['f2_445nm'];
+  const f3 = metrics['f3_480nm'];
+  const f4 = metrics['f4_515nm'];
+  const f5 = metrics['f5_555nm'];
+  const f6 = metrics['f6_590nm'];
+  const f7 = metrics['f7_630nm'];
+  const f8 = metrics['f8_680nm'];
+  const nir = metrics['nir'];
+  const clear = metrics['clear'];
+
+  let ndvi: number | null = null;
+  let par: number | null = null;
+  let lux_estimado: number | null = null;
+  let red_edge_ratio: number | null = null;
+  let chlorophyll_index: number | null = null;
+  let nir_reflectance: number | null = null;
+  let clear_par_ratio: number | null = null;
+
+  // NDVI = (NIR - Red) / (NIR + Red)
+  if (nir != null && f6 != null && nir + f6 > 0) {
+    ndvi = (nir - f6) / (nir + f6);
+  }
+
+  // PAR = suma de canales visibles (400-700nm)
+  if (
+    f1 != null &&
+    f2 != null &&
+    f3 != null &&
+    f4 != null &&
+    f5 != null &&
+    f6 != null &&
+    f7 != null
+  ) {
+    par = f1 + f2 + f3 + f4 + f5 + f6 + f7;
+  }
+
+  // Lux estimado
+  if (f4 != null && f5 != null && f6 != null) {
+    lux_estimado = f4 * 0.3 + f5 * 0.6 + f6 * 0.1;
+  }
+
+  // Red Edge Ratio
+  if (f8 != null && f6 != null && f6 > 0) {
+    red_edge_ratio = f8 / f6;
+  }
+
+  // Índice de clorofila
+  if (f8 != null && f6 != null && f8 + f6 > 0) {
+    chlorophyll_index = (f8 - f6) / (f8 + f6);
+  }
+
+  // Reflectancia NIR normalizada (NIR / Clear)
+  if (nir != null && clear != null && clear > 0) {
+    nir_reflectance = nir / clear;
+  }
+
+  // Relación Clear/PAR
+  if (clear != null && par != null && par > 0) {
+    clear_par_ratio = clear / par;
+  }
+
+  return {
+    ndvi,
+    par,
+    lux_estimado,
+    red_edge_ratio,
+    chlorophyll_index,
+    nir_reflectance,
+    clear_par_ratio,
+  };
+}
+----- bme680.formula.ts -----
+export interface Bme680Derived {
+  dew_point: number | null;
+  vpd: number | null;
+  altitude: number | null;
+}
+
+export function calculateBme680(
+  metrics: Record<string, number>,
+): Bme680Derived {
+  const temp = metrics['temperature'];
+  const hum = metrics['humidity'];
+  const press = metrics['pressure'];
+
+  let dew_point: number | null = null;
+  let vpd: number | null = null;
+  let altitude: number | null = null;
+
+  if (temp != null && hum != null) {
+    // Punto de rocío (fórmula de Magnus)
+    const a = 17.27;
+    const b = 237.7;
+    const gamma = (a * temp) / (b + temp) + Math.log(hum / 100);
+    dew_point = (b * gamma) / (a - gamma);
+
+    // VPD (Déficit de Presión de Vapor) en kPa
+    const es = 0.6108 * Math.exp((17.27 * temp) / (temp + 237.3));
+    const ea = es * (hum / 100);
+    vpd = es - ea;
+  }
+
+  // Altitud estimada desde presión (hPa)
+  if (press != null) {
+    altitude = 44330 * (1 - Math.pow(press / 1013.25, 1 / 5.255));
+  }
+
+  return { dew_point, vpd, altitude };
+}
+----- mhz19b.formula.ts -----
+export interface Mhz19bDerived {
+  co2_change_rate: number | null;
+}
+
+// Necesita acceso a la lectura anterior para calcular tasa de cambio
+// Se maneja en el servicio
+export function calculateMhz19b(
+  currentCo2: number,
+  previousCo2: number | null,
+  timeDiffSeconds: number,
+): Mhz19bDerived {
+  let co2_change_rate: number | null = null;
+
+  if (previousCo2 != null && timeDiffSeconds > 0) {
+    co2_change_rate = (currentCo2 - previousCo2) / timeDiffSeconds;
+  }
+
+  return { co2_change_rate };
+}
+----- soil_ec.formula.ts -----
+export interface SoilEcDerived {
+  ec_compensated: number | null;
+  tds: number | null;
+  salinity: number | null;
+}
+
+export function calculateSoilEc(
+  metrics: Record<string, number>,
+): SoilEcDerived {
+  const ec = metrics['ec'];
+  const temp = metrics['temperature'];
+
+  let ec_compensated: number | null = null;
+  let tds: number | null = null;
+  let salinity: number | null = null;
+
+  if (ec != null) {
+    // EC compensada a 25°C
+    if (temp != null) {
+      ec_compensated = ec / (1 + 0.02 * (temp - 25));
+    } else {
+      ec_compensated = ec;
+    }
+
+    // TDS (Sólidos Disueltos Totales) en ppm
+    tds = ec * 640;
+
+    // Salinidad estimada en ppm
+    salinity = ec * 500;
+  }
+
+  return { ec_compensated, tds, salinity };
+}
+----- config.controller.ts -----
+import {
+  Controller,
+  Get,
+  Put,
+  Post,
+  Param,
+  Body,
+  Inject,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiParam, ApiBody } from '@nestjs/swagger';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
+import { DRIZZLE } from '../db/database.module';
+import { MqttService } from '../mqtt/mqtt.service';
+import * as schema from '../db/schema';
+
+@ApiTags('config')
+@Controller('config')
+export class ConfigController {
+  constructor(
+    private readonly mqttService: MqttService,
+    @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
+  ) {}
+
+  @Get('sensors/:alias')
+  @ApiOperation({
+    summary: 'Obtener la última configuración guardada de un sensor',
+  })
+  @ApiParam({ name: 'alias', example: 'as7341' })
+  async getConfig(@Param('alias') alias: string) {
+    const result = await this.db.execute(sql`
+      SELECT sc.config, sc.version, sc.updated_at
+      FROM sensor_configs sc
+      JOIN sensors s ON sc.sensor_id = s.id
+      WHERE s.alias = ${alias}
+      ORDER BY sc.version DESC
+      LIMIT 1
+    `);
+    return result.rows[0] || { config: {}, version: 0 };
+  }
+
+  @Put('sensors/:alias')
+  @ApiOperation({
+    summary: 'Guardar y enviar configuración a un sensor vía MQTT',
+  })
+  @ApiParam({ name: 'alias', example: 'as7341' })
+  @ApiBody({ description: 'Configuración en formato JSON', type: Object })
+  async updateConfig(@Param('alias') alias: string, @Body() config: any) {
+    // Buscar sensor
+    const sensor = await this.db.execute(sql`
+      SELECT id FROM sensors WHERE alias = ${alias} LIMIT 1
+    `);
+    if (!sensor.rows.length) {
+      return { error: 'Sensor no encontrado' };
+    }
+    const sensorId = sensor.rows[0].id;
+
+    // Guardar nueva versión de config en BD
+    const currentVersion = await this.db.execute(sql`
+      SELECT COALESCE(MAX(version), 0) as max_version
+      FROM sensor_configs
+      WHERE sensor_id = ${sensorId}
+    `);
+    const newVersion = Number(currentVersion.rows[0].max_version) + 1;
+
+    await this.db.execute(sql`
+      INSERT INTO sensor_configs (sensor_id, config, version)
+      VALUES (${sensorId}, ${JSON.stringify(config)}::jsonb, ${newVersion})
+    `);
+
+    // Enviar al ESP32 por MQTT
+    this.mqttService.sendSensorConfig(alias, config);
+
+    return {
+      status: 'ok',
+      message: `Configuración v${newVersion} enviada a ${alias}`,
+      version: newVersion,
+    };
+  }
+
+  @Post('sensors/:alias/read')
+  @ApiOperation({ summary: 'Solicitar lectura inmediata de un sensor' })
+  @ApiParam({ name: 'alias', example: 'as7341' })
+  requestRead(@Param('alias') alias: string) {
+    this.mqttService.requestSensorRead(alias);
+    return { status: 'ok', message: `Comando READ enviado a ${alias}` };
+  }
+
+  @Get('actuators/:name')
+  @ApiOperation({
+    summary: 'Obtener la última configuración guardada de un actuador',
+  })
+  @ApiParam({ name: 'name', example: 'relay_principal' })
+  async getActuatorConfig(@Param('name') name: string) {
+    const actuator = await this.db.execute<{ id: number; type: string }>(sql`
+    SELECT id, type FROM actuators WHERE name = ${name} LIMIT 1
+  `);
+    if (!actuator.rows.length) {
+      return { error: 'Actuador no encontrado' };
+    }
+    const result = await this.db.execute(sql`
+    SELECT config, version, updated_at
+    FROM actuator_configs
+    WHERE actuator_id = ${actuator.rows[0].id}
+    ORDER BY version DESC
+    LIMIT 1
+  `);
+    return result.rows[0] || { config: {}, version: 0 };
+  }
+
+  @Put('actuators/:name')
+  @ApiOperation({
+    summary: 'Guardar y enviar configuración a un actuador vía MQTT',
+  })
+  @ApiParam({ name: 'name', example: 'relay_principal' })
+  @ApiBody({ description: 'Configuración en formato JSON', type: Object })
+  async updateActuatorConfig(
+    @Param('name') name: string,
+    @Body() config: Record<string, any>,
+  ) {
+    const actuator = await this.db.execute<{ id: number; type: string }>(sql`
+    SELECT id, type FROM actuators WHERE name = ${name} LIMIT 1
+  `);
+    if (!actuator.rows.length) {
+      return { error: 'Actuador no encontrado' };
+    }
+
+    const actuatorType = actuator.rows[0].type;
+    const actuatorId = actuator.rows[0].id;
+
+    // Guardar nueva versión en BD (opcional, el ESP32 confirmará y se sobrescribirá)
+    const currentVersion = await this.db.execute(sql`
+    SELECT COALESCE(MAX(version), 0) as max_version
+    FROM actuator_configs
+    WHERE actuator_id = ${actuatorId}
+  `);
+    const newVersion = Number(currentVersion.rows[0].max_version) + 1;
+
+    await this.db.execute(sql`
+    INSERT INTO actuator_configs (actuator_id, config, version)
+    VALUES (${actuatorId}, ${JSON.stringify(config)}::jsonb, ${newVersion})
+  `);
+
+    // Enviar al ESP32 por MQTT usando el comando 'config'
+    this.mqttService.sendActuatorCommand(actuatorType, 'config', config);
+
+    return {
+      status: 'ok',
+      message: `Configuración v${newVersion} enviada a ${name}`,
+      version: newVersion,
+    };
+  }
+}
+----- config.module.ts -----
+import { Module } from '@nestjs/common';
+import { ConfigController } from './config.controller';
+
+@Module({
+  controllers: [ConfigController],
+})
+export class ConfigModule {}
+----- database.module.ts -----
+import { Module, Global } from '@nestjs/common';
+import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
+import * as schema from './schema';
+
+export const DRIZZLE = Symbol('DRIZZLE');
+
+@Global()
+@Module({
+  providers: [
+    {
+      provide: DRIZZLE,
+      useFactory: async (): Promise<NodePgDatabase<typeof schema>> => {
+        const pool = new Pool({
+          connectionString: process.env.DATABASE_URL,
+        });
+        // Prueba de conexión
+        await pool.query('SELECT 1');
+        console.log('Conectado a PostgreSQL/TimescaleDB');
+        return drizzle(pool, { schema });
+      },
+    },
+  ],
+  exports: [DRIZZLE],
+})
+export class DatabaseModule {}
+----- schema.ts -----
+import {
+  pgTable,
+  bigserial,
+  bigint,
+  text,
+  integer,
+  timestamp,
+  jsonb,
+  uuid,
+  doublePrecision,
+  smallint,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  email: text('email').unique().notNull(),
+  passwordHash: text('password_hash').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+export const devices = pgTable('devices', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  userId: bigint('user_id', { mode: 'number' }).references(() => users.id, {
+    onDelete: 'cascade',
+  }),
+  name: text('name').notNull(),
+  type: text('type').notNull().default('esp32'),
+  location: text('location'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+export const deviceBoots = pgTable('device_boots', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  deviceId: bigint('device_id', { mode: 'number' })
+    .notNull()
+    .references(() => devices.id, { onDelete: 'cascade' }),
+  bootTime: bigint('boot_time', { mode: 'number' }).notNull(),
+  serverTime: timestamp('server_time', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  version: text('version'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+export const sensors = pgTable(
+  'sensors',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    deviceId: bigint('device_id', { mode: 'number' })
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    model: text('model').notNull(),
+    alias: text('alias').notNull(),
+    sensorType: text('sensor_type').notNull(),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    uniqueDeviceAlias: uniqueIndex('idx_sensors_device_alias').on(
+      table.deviceId,
+      table.alias,
+    ),
+  }),
+);
+
+export const sensorConfigs = pgTable('sensor_configs', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  sensorId: bigint('sensor_id', { mode: 'number' })
+    .notNull()
+    .references(() => sensors.id, { onDelete: 'cascade' }),
+  config: jsonb('config').default({}),
+  version: integer('version').default(1),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
+export const actuators = pgTable(
+  'actuators',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    deviceId: bigint('device_id', { mode: 'number' })
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    type: text('type').notNull(),
+    state: jsonb('state').default({}),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    uniqueDeviceName: uniqueIndex('idx_actuators_device_name').on(
+      table.deviceId,
+      table.name,
+    ),
+  }),
+);
+
+export const actuatorEvents = pgTable('actuator_events', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  actuatorId: bigint('actuator_id', { mode: 'number' })
+    .notNull()
+    .references(() => actuators.id, { onDelete: 'cascade' }),
+  oldState: jsonb('old_state'),
+  newState: jsonb('new_state'),
+  reason: text('reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+// Telemetry: solo para referencia de tipos, las inserciones son SQL crudo
+export const telemetry = pgTable('telemetry', {
+  time: timestamp('time', { withTimezone: true }).notNull(),
+  sampleId: uuid('sample_id').defaultRandom().notNull(),
+  deviceId: bigint('device_id', { mode: 'number' })
+    .notNull()
+    .references(() => devices.id, { onDelete: 'cascade' }),
+  sensorId: bigint('sensor_id', { mode: 'number' })
+    .notNull()
+    .references(() => sensors.id, { onDelete: 'cascade' }),
+  metricName: text('metric_name').notNull(),
+  value: doublePrecision('value').notNull(),
+  unit: text('unit'),
+  quality: smallint('quality').default(100),
+  rawPayload: jsonb('raw_payload'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+export const actuatorConfigs = pgTable('actuator_configs', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  actuatorId: bigint('actuator_id', { mode: 'number' })
+    .notNull()
+    .references(() => actuators.id, { onDelete: 'cascade' }),
+  config: jsonb('config').default({}),
+  version: integer('version').default(1),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+----- devices.controller.ts -----
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Param,
+  Body,
+  Inject,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiParam,
+  ApiBody,
+  ApiResponse,
+} from '@nestjs/swagger';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
+import { DRIZZLE } from '../db/database.module';
+import * as schema from '../db/schema';
+
+@ApiTags('devices')
+@Controller('devices')
+export class DevicesController {
+  constructor(@Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Listar todos los dispositivos' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de dispositivos con conteo de sensores',
+  })
+  async list() {
+    const result = await this.db.execute(sql`
+      SELECT 
+        d.*,
+        COUNT(s.id) as sensor_count
+      FROM devices d
+      LEFT JOIN sensors s ON d.id = s.device_id
+      GROUP BY d.id
+      ORDER BY d.id
+    `);
+    return result.rows;
+  }
+
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Obtener detalle de un dispositivo con sus sensores y actuadores',
+  })
+  @ApiParam({ name: 'id', example: 1, description: 'ID del dispositivo' })
+  async detail(@Param('id') id: number) {
+    const device = await this.db.execute(sql`
+      SELECT * FROM devices WHERE id = ${id}
+    `);
+
+    if (!device.rows.length) {
+      return { error: 'Dispositivo no encontrado' };
+    }
+
+    const sensors = await this.db.execute(sql`
+      SELECT * FROM sensors WHERE device_id = ${id} ORDER BY id
+    `);
+
+    const actuators = await this.db.execute(sql`
+      SELECT * FROM actuators WHERE device_id = ${id} ORDER BY id
+    `);
+
+    return {
+      ...device.rows[0],
+      sensors: sensors.rows,
+      actuators: actuators.rows,
+    };
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Registrar un nuevo dispositivo (ESP32)' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['name'],
+      properties: {
+        name: { type: 'string', example: 'GrowBox Principal' },
+        type: { type: 'string', example: 'esp32', default: 'esp32' },
+        location: { type: 'string', example: 'Invernadero 1' },
+        metadata: { type: 'object', example: { ip: '192.168.1.100' } },
+        user_id: {
+          type: 'number',
+          example: null,
+          description: 'ID del usuario propietario (opcional)',
+        },
+      },
+    },
+  })
+  async create(
+    @Body()
+    body: {
+      name: string;
+      type?: string;
+      location?: string;
+      metadata?: any;
+      user_id?: number;
+    },
+  ) {
+    const result = await this.db.execute(sql`
+      INSERT INTO devices (name, type, location, metadata, user_id)
+      VALUES (
+        ${body.name},
+        ${body.type || 'esp32'},
+        ${body.location || null},
+        ${body.metadata ? JSON.stringify(body.metadata) : '{}'}::jsonb,
+        ${body.user_id || null}
+      )
+      RETURNING *
+    `);
+    return result.rows[0];
+  }
+
+  @Put(':id')
+  @ApiOperation({ summary: 'Actualizar datos de un dispositivo' })
+  @ApiParam({ name: 'id', example: 1 })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'Nuevo nombre' },
+        type: { type: 'string', example: 'esp32' },
+        location: { type: 'string', example: 'Nueva ubicación' },
+        metadata: { type: 'object', example: {} },
+      },
+    },
+  })
+  async update(
+    @Param('id') id: number,
+    @Body()
+    body: {
+      name?: string;
+      type?: string;
+      location?: string;
+      metadata?: any;
+    },
+  ) {
+    const result = await this.db.execute(sql`
+      UPDATE devices
+      SET 
+        name = COALESCE(${body.name}, name),
+        type = COALESCE(${body.type}, type),
+        location = COALESCE(${body.location}, location),
+        metadata = COALESCE(${body.metadata ? JSON.stringify(body.metadata) : null}::jsonb, metadata)
+      WHERE id = ${id}
+      RETURNING *
+    `);
+    return result.rows[0] || { error: 'Dispositivo no encontrado' };
+  }
+
+  @Delete(':id')
+  @ApiOperation({
+    summary:
+      'Eliminar un dispositivo y todos sus sensores/actuadores asociados',
+  })
+  @ApiParam({ name: 'id', example: 1 })
+  async delete(@Param('id') id: number) {
+    // El ON DELETE CASCADE se encarga de eliminar sensors, actuators, actuator_events, telemetry
+    await this.db.execute(sql`DELETE FROM devices WHERE id = ${id}`);
+    return { status: 'ok', message: `Dispositivo ${id} eliminado` };
+  }
+
+  @Get(':id/status')
+  @ApiOperation({
+    summary:
+      'Obtener estado resumido del dispositivo (última telemetría recibida)',
+  })
+  @ApiParam({ name: 'id', example: 1 })
+  async status(@Param('id') id: number) {
+    const device = await this.db.execute(sql`
+      SELECT * FROM devices WHERE id = ${id}
+    `);
+    if (!device.rows.length) {
+      return { error: 'Dispositivo no encontrado' };
+    }
+
+    // Última telemetría recibida de este dispositivo
+    const lastTelemetry = await this.db.execute(sql`
+      SELECT t.time, s.alias, s.name as sensor_name
+      FROM telemetry t
+      JOIN sensors s ON t.sensor_id = s.id
+      WHERE t.device_id = ${id}
+      ORDER BY t.time DESC
+      LIMIT 1
+    `);
+
+    // Conteo de sensores activos (que enviaron datos en la última hora)
+    const activeSensors = await this.db.execute(sql`
+      SELECT COUNT(DISTINCT sensor_id) as count
+      FROM telemetry
+      WHERE device_id = ${id}
+        AND time > now() - interval '1 hour'
+    `);
+
+    return {
+      ...device.rows[0],
+      last_telemetry: lastTelemetry.rows[0] || null,
+      active_sensors: Number(activeSensors.rows[0].count),
+    };
+  }
+}
+----- devices.module.ts -----
+import { Module } from '@nestjs/common';
+import { DevicesController } from './devices.controller';
+
+@Module({
+  controllers: [DevicesController],
+})
+export class DevicesModule {}
+----- health.controller.spec.ts -----
+import { Test, TestingModule } from '@nestjs/testing';
+import { HealthController } from './health.controller';
+
+describe('HealthController', () => {
+  let controller: HealthController;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [HealthController],
+    }).compile();
+
+    controller = module.get<HealthController>(HealthController);
+  });
+
+  it('should be defined', () => {
+    expect(controller).toBeDefined();
+  });
+});
+----- health.controller.ts -----
+import { Controller, Get, Inject } from '@nestjs/common';
+import { DRIZZLE } from '../db/database.module';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import * as schema from '../db/schema';
+import { sql } from 'drizzle-orm';
+import { MqttService } from '../mqtt/mqtt.service';
+
+@Controller('health')
+export class HealthController {
+  constructor(
+    @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
+    private readonly mqttService: MqttService,
+  ) {}
+
+  @Get()
+  async check() {
+    const dbResult = await this.db.execute(sql`SELECT 1 as ok`);
+    const dbStatus = dbResult.rows[0]?.ok === 1 ? 'connected' : 'error';
+
+    const mqttStatus = this.mqttService.isConnected()
+      ? 'connected'
+      : 'disconnected';
+
+    return {
+      status: 'ok',
+      database: dbStatus,
+      mqtt: mqttStatus,
+    };
+  }
+
+  @Get('telemetry-count')
+  async count() {
+    const count = await this.db.execute(sql`
+      SELECT count(*) FROM telemetry
+    `);
+    return { telemetry_rows: count.rows[0].count };
+  }
+
+  @Get('mqtt')
+  mqttHealth() {
+    const connected = this.mqttService.isConnected();
+    return {
+      mqtt: connected ? 'connected' : 'disconnected',
+      broker: process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883',
+    };
+  }
+}
+----- health.module.ts -----
+import { Module } from '@nestjs/common';
+import { HealthController } from './health.controller';
+
+@Module({
+  controllers: [HealthController],
+})
+export class HealthModule {}
+----- mqtt.module.ts -----
+import { Module, Global } from '@nestjs/common';
+import { MqttService } from './mqtt.service';
+
+@Global()
+@Module({
+  providers: [MqttService],
+  exports: [MqttService],
+})
+export class MqttModule {}
+----- mqtt.service.ts -----
+import {
+  Injectable,
+  OnModuleInit,
+  OnModuleDestroy,
+  Logger,
+  Inject,
+} from '@nestjs/common';
+import * as mqtt from 'mqtt';
+import {
+  TelemetryService,
+  TelemetryMessage,
+} from '../telemetry/telemetry.service';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
+import { DRIZZLE } from '../db/database.module';
+import * as schema from '../db/schema';
+
+@Injectable()
+export class MqttService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(MqttService.name);
+  private client: mqtt.MqttClient | null = null;
+
+  constructor(
+    private readonly telemetryService: TelemetryService,
+    @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
+  ) {}
+
+  isConnected(): boolean {
+    return this.client?.connected ?? false;
+  }
+
+  onModuleInit() {
+    const brokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
+    const clientId = process.env.MQTT_CLIENT_ID || 'cea_backend';
+
+    const client = mqtt.connect(brokerUrl, {
+      clientId,
+      clean: true,
+      connectTimeout: 4000,
+      reconnectPeriod: 5000,
+    });
+
+    this.client = client;
+
+    client.on('connect', () => {
+      this.logger.log(`Conectado a MQTT broker: ${brokerUrl}`);
+
+      // Suscribirse a telemetría de todos los sensores
+      client.subscribe('growbox/+/data', (err) => {
+        if (err) {
+          this.logger.error('Error al suscribirse a growbox/+/data', err);
+        } else {
+          this.logger.log('Suscrito a growbox/+/data');
+        }
+      });
+
+      // Suscribirse a cambios de estado de los relés
+      client.subscribe('growbox/relay/+/state', (err) => {
+        if (err) {
+          this.logger.error(
+            'Error al suscribirse a growbox/relay/+/state',
+            err,
+          );
+        } else {
+          this.logger.log('Suscrito a growbox/relay/+/state');
+        }
+      });
+
+      // Suscribirse a estado general de la growbox
+      client.subscribe('growbox/status', (err) => {
+        if (err) {
+          this.logger.error('Error al suscribirse a growbox/status', err);
+        } else {
+          this.logger.log('Suscrito a growbox/status');
+        }
+      });
+
+      // NUEVA SUSCRIPCIÓN: respuestas de configuración de sensores
+      client.subscribe('growbox/+/config', (err) => {
+        if (err) {
+          this.logger.error('Error al suscribirse a growbox/+/config', err);
+        } else {
+          this.logger.log(
+            'Suscrito a growbox/+/config (confirmaciones de configuración)',
+          );
+        }
+      });
+    });
+
+    client.on('message', (topic, payload) => {
+      this.handleMessage(topic, payload);
+    });
+
+    client.on('error', (err) => {
+      this.logger.error('Error de conexión MQTT', err);
+    });
+  }
+
+  private async handleStatusMessage(payload: Buffer) {
+    try {
+      const raw = payload.toString().trim();
+
+      // El LWT puede ser un string plano "offline" u "online"
+      if (raw === 'offline') {
+        this.logger.log('Device offline (LWT)');
+        return;
+      }
+      if (raw === 'online') {
+        this.logger.log('Device online');
+        return;
+      }
+
+      // Si no es string plano, es JSON
+      const msg = JSON.parse(raw) as {
+        device_id?: number;
+        status?: string;
+        boot_time?: number;
+        version?: string;
+      };
+
+      if (msg.status === 'boot' && msg.device_id) {
+        await this.db.execute(sql`
+        INSERT INTO device_boots (device_id, boot_time, server_time, version)
+        VALUES (${msg.device_id}, ${msg.boot_time ?? 0}, now(), ${msg.version ?? null})
+      `);
+        this.logger.log(`Boot registrado para device ${msg.device_id}`);
+      } else if (msg.status === 'online') {
+        this.logger.log(`Device ${msg.device_id} online`);
+      } else if (msg.status === 'offline') {
+        this.logger.log(`Device ${msg.device_id} offline (LWT)`);
+      }
+    } catch (err) {
+      this.logger.error('Error procesando status MQTT', err);
+    }
+  }
+
+  private handleMessage(topic: string, payload: Buffer) {
+    if (topic === 'growbox/status') {
+      void this.handleStatusMessage(payload);
+      return;
+    }
+
+    try {
+      const message = JSON.parse(payload.toString()) as Record<string, any>;
+      const parts = topic.split('/');
+
+      // Telemetría de sensores: growbox/<alias>/data
+      if (parts.length >= 3 && parts[2] === 'data') {
+        const sensorAlias = parts[1];
+        void this.telemetryService.ingest(
+          sensorAlias,
+          message as TelemetryMessage,
+        );
+        return;
+      }
+
+      // Estado de relés: growbox/relay/<channel>/state
+      if (parts.length >= 4 && parts[1] === 'relay' && parts[3] === 'state') {
+        const channel = parseInt(parts[2], 10);
+        const state = message.state as string;
+        void this.updateRelayState(channel, state);
+        return;
+      }
+
+      // NUEVO: Respuesta de configuración de sensor: growbox/<alias>/config
+      if (parts.length === 3 && parts[2] === 'config') {
+        const sensorAlias = parts[1];
+        void this.handleConfigResponse(sensorAlias, message);
+        return;
+      }
+
+      this.logger.warn(`Topic no reconocido: ${topic}`);
+    } catch (err) {
+      this.logger.error('Error al parsear mensaje MQTT', err);
+    }
+  }
+
+  /**
+   * Procesa la confirmación de configuración de un sensor enviada por el ESP32.
+   * Si la configuración es diferente a la última guardada, inserta una nueva versión.
+   */
+  private async handleConfigResponse(
+    alias: string,
+    config: Record<string, unknown>,
+  ) {
+    try {
+      // 1. Intentar como sensor
+      const sensor = await this.db.execute<{ id: number }>(sql`
+      SELECT id FROM sensors WHERE alias = ${alias} LIMIT 1
+    `);
+      if (sensor.rows.length) {
+        const sensorId = sensor.rows[0].id;
+        const latest = await this.db.execute<{
+          config: any;
+          version: number;
+        }>(sql`
+        SELECT config, version
+        FROM sensor_configs
+        WHERE sensor_id = ${sensorId}
+        ORDER BY version DESC
+        LIMIT 1
+      `);
+        const newConfigStr = JSON.stringify(config);
+        if (
+          latest.rows.length > 0 &&
+          JSON.stringify(latest.rows[0].config) === newConfigStr
+        ) {
+          this.logger.debug(`Config de sensor ${alias} sin cambios`);
+          return;
+        }
+        const newVersion = latest.rows.length ? latest.rows[0].version + 1 : 1;
+        await this.db.execute(sql`
+        INSERT INTO sensor_configs (sensor_id, config, version)
+        VALUES (${sensorId}, ${newConfigStr}::jsonb, ${newVersion})
+      `);
+        this.logger.log(`Configuración de sensor ${alias} v${newVersion}`);
+        return;
+      }
+
+      // 2. Intentar como actuador (la alias será el tipo, ej. 'relay')
+      const actuator = await this.db.execute<{ id: number }>(sql`
+      SELECT id FROM actuators WHERE type = ${alias} LIMIT 1
+    `);
+      if (actuator.rows.length) {
+        const actuatorId = actuator.rows[0].id;
+        const latest = await this.db.execute<{
+          config: any;
+          version: number;
+        }>(sql`
+        SELECT config, version
+        FROM actuator_configs
+        WHERE actuator_id = ${actuatorId}
+        ORDER BY version DESC
+        LIMIT 1
+      `);
+        const newConfigStr = JSON.stringify(config);
+        if (
+          latest.rows.length > 0 &&
+          JSON.stringify(latest.rows[0].config) === newConfigStr
+        ) {
+          this.logger.debug(`Config de actuador ${alias} sin cambios`);
+          return;
+        }
+        const newVersion = latest.rows.length ? latest.rows[0].version + 1 : 1;
+        await this.db.execute(sql`
+        INSERT INTO actuator_configs (actuator_id, config, version)
+        VALUES (${actuatorId}, ${newConfigStr}::jsonb, ${newVersion})
+      `);
+        this.logger.log(`Configuración de actuador ${alias} v${newVersion}`);
+        return;
+      }
+
+      this.logger.warn(`Destinatario de config desconocido: ${alias}`);
+    } catch (err) {
+      this.logger.error(`Error al guardar config de ${alias}`, err);
+    }
+  }
+
+  private async updateRelayState(channel: number, state: string) {
+    if (channel < 1 || channel > 4) {
+      this.logger.warn(`Canal de relé inválido: ${channel}`);
+      return;
+    }
+
+    const actuator = await this.db.execute<{ id: number; state: unknown }>(sql`
+    SELECT id, state FROM actuators
+    WHERE name = ${`canal_${channel}`} AND type = 'relay' LIMIT 1
+  `);
+
+    if (!actuator.rows.length) {
+      this.logger.warn(`Actuador canal_${channel} no encontrado`);
+      return;
+    }
+
+    const actuatorId = actuator.rows[0].id;
+    const currentState = (actuator.rows[0].state as Record<string, any>) || {};
+
+    // Estado simple para un solo canal
+    const newState = { state };
+
+    await this.db.execute(sql`
+    UPDATE actuators SET state = ${JSON.stringify(newState)}::jsonb
+    WHERE id = ${actuatorId}
+  `);
+
+    await this.db.execute(sql`
+    INSERT INTO actuator_events (actuator_id, old_state, new_state, reason)
+    VALUES (
+      ${actuatorId},
+      ${JSON.stringify(currentState)}::jsonb,
+      ${JSON.stringify(newState)}::jsonb,
+      'mqtt_state_update'
+    )
+  `);
+
+    this.logger.log(
+      `Relé canal ${channel} (canal_${channel}) actualizado a ${state}`,
+    );
+  }
+
+  publish(topic: string, payload: string): boolean {
+    if (!this.client || !this.client.connected) {
+      this.logger.warn('Cliente MQTT no conectado');
+      return false;
+    }
+    return this.client.publish(topic, payload) !== undefined;
+  }
+
+  requestSensorRead(sensorAlias: string): void {
+    const topic = `growbox/${sensorAlias}/read`;
+    this.publish(topic, '{}');
+    this.logger.log(`Comando READ enviado a ${topic}`);
+  }
+
+  sendSensorConfig(sensorAlias: string, config: any): void {
+    const topic = `growbox/${sensorAlias}/config`;
+    const payload = JSON.stringify(config);
+    this.publish(topic, payload);
+    this.logger.log(`Configuración enviada a ${topic}`);
+  }
+
+  sendActuatorCommand(
+    actuatorType: string,
+    command: string,
+    payload: any,
+  ): void {
+    const topic = `growbox/${actuatorType}/${command}`;
+    this.publish(topic, JSON.stringify(payload));
+    this.logger.log(`Comando enviado a ${topic}`);
+  }
+
+  onModuleDestroy() {
+    if (this.client) {
+      this.client.end(false, {}, () => {
+        this.logger.log('Conexión MQTT cerrada');
+      });
+    }
+  }
+}
+----- seed.module.ts -----
+import { Module, Global } from '@nestjs/common';
+import { SeedService } from './seed.service';
+
+@Global()
+@Module({
+  providers: [SeedService],
+})
+export class SeedModule {}
+----- seed.service.ts -----
+import { Injectable, OnModuleInit, Inject, Logger } from '@nestjs/common';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
+import { DRIZZLE } from '../db/database.module';
+
+@Injectable()
+export class SeedService implements OnModuleInit {
+  private readonly logger = new Logger(SeedService.name);
+
+  constructor(@Inject(DRIZZLE) private db: NodePgDatabase<any>) {}
+
+  async onModuleInit() {
+    // Dispositivo único
+    await this.db.execute(sql`
+    INSERT INTO devices (id, name, type, location)
+    VALUES (1, 'GrowBox Principal', 'esp32', 'Invernadero 1')
+    ON CONFLICT (id) DO NOTHING
+  `);
+
+    // Sensores
+    const sensores = [
+      {
+        id: 1,
+        alias: 'as7341',
+        name: 'AS7341 Principal',
+        model: 'AS7341',
+        type: 'spectral',
+      },
+      {
+        id: 2,
+        alias: 'bme680',
+        name: 'BME680 Interior',
+        model: 'BME680',
+        type: 'environmental',
+      },
+      {
+        id: 3,
+        alias: 'mhz19b',
+        name: 'MH-Z19B CO2',
+        model: 'MH-Z19B',
+        type: 'co2',
+      },
+      {
+        id: 4,
+        alias: 'soil_ec',
+        name: 'Soil EC RS485',
+        model: 'SoilEC',
+        type: 'soil_ec',
+      },
+    ];
+
+    for (const s of sensores) {
+      await this.db.execute(sql`
+      INSERT INTO sensors (id, device_id, name, model, alias, sensor_type)
+      VALUES (${s.id}, 1, ${s.name}, ${s.model}, ${s.alias}, ${s.type})
+      ON CONFLICT (device_id, alias) DO UPDATE SET name = EXCLUDED.name
+    `);
+    }
+
+    // Actuadores de ejemplo
+    const actuadores = [
+      {
+        name: 'canal_1',
+        type: 'relay',
+        metadata: { descripcion: 'Ventilación principal' },
+      },
+      {
+        name: 'canal_2',
+        type: 'relay',
+        metadata: { descripcion: 'Iluminación principal' },
+      },
+      {
+        name: 'canal_3',
+        type: 'relay',
+        metadata: { descripcion: 'Riego principal' },
+      },
+      { name: 'canal_4', type: 'relay', metadata: { descripcion: 'Libre' } },
+    ];
+
+    for (const a of actuadores) {
+      await this.db.execute(sql`
+      INSERT INTO actuators (device_id, name, type, state)
+      VALUES (1, ${a.name}, ${a.type}, '{}')
+      ON CONFLICT (device_id, name) DO NOTHING
+    `);
+    }
+
+    this.logger.log(
+      'Seed ejecutado: dispositivos, sensores y actuadores iniciales',
+    );
+  }
+}
+----- sensors.controller.ts -----
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Param,
+  Body,
+  Inject,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiParam,
+  ApiBody,
+  ApiResponse,
+} from '@nestjs/swagger';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
+import { DRIZZLE } from '../db/database.module';
+import * as schema from '../db/schema';
+
+@ApiTags('sensors')
+@Controller('sensors')
+export class SensorsController {
+  constructor(@Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Listar todos los sensores registrados' })
+  @ApiResponse({ status: 200, description: 'Lista de sensores' })
+  async list() {
+    const result = await this.db.execute(sql`
+      SELECT s.*, d.name as device_name
+      FROM sensors s
+      JOIN devices d ON s.device_id = d.id
+      ORDER BY s.id
+    `);
+    return result.rows;
+  }
+
+  @Get(':alias')
+  @ApiOperation({ summary: 'Obtener detalle de un sensor por su alias' })
+  @ApiParam({
+    name: 'alias',
+    example: 'as7341',
+    description: 'Alias del sensor',
+  })
+  @ApiResponse({ status: 200, description: 'Detalle del sensor' })
+  async detail(@Param('alias') alias: string) {
+    const result = await this.db.execute(sql`
+      SELECT s.*, d.name as device_name
+      FROM sensors s
+      JOIN devices d ON s.device_id = d.id
+      WHERE s.alias = ${alias}
+    `);
+    return result.rows[0] || { error: 'Sensor no encontrado' };
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Registrar un nuevo sensor' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['device_id', 'name', 'model', 'alias', 'sensor_type'],
+      properties: {
+        device_id: { type: 'number', example: 1 },
+        name: { type: 'string', example: 'BME680 Interior' },
+        model: { type: 'string', example: 'BME680' },
+        alias: { type: 'string', example: 'bme680' },
+        sensor_type: { type: 'string', example: 'environmental' },
+        metadata: { type: 'object', example: {} },
+      },
+    },
+  })
+  async create(
+    @Body()
+    body: {
+      device_id: number;
+      name: string;
+      model: string;
+      alias: string;
+      sensor_type: string;
+      metadata?: any;
+    },
+  ) {
+    const result = await this.db.execute(sql`
+      INSERT INTO sensors (device_id, name, model, alias, sensor_type, metadata)
+      VALUES (${body.device_id}, ${body.name}, ${body.model}, ${body.alias}, ${body.sensor_type}, ${body.metadata ? JSON.stringify(body.metadata) : '{}'}::jsonb)
+      ON CONFLICT (device_id, alias) DO UPDATE SET name = EXCLUDED.name
+      RETURNING *
+    `);
+    return result.rows[0];
+  }
+
+  @Put(':alias')
+  @ApiOperation({ summary: 'Actualizar metadatos o nombre de un sensor' })
+  @ApiParam({ name: 'alias', example: 'as7341' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'Nuevo nombre' },
+        metadata: { type: 'object', example: { location: 'invernadero' } },
+      },
+    },
+  })
+  async update(
+    @Param('alias') alias: string,
+    @Body() body: { name?: string; metadata?: any },
+  ) {
+    const result = await this.db.execute(sql`
+      UPDATE sensors
+      SET 
+        name = COALESCE(${body.name}, name),
+        metadata = COALESCE(${body.metadata ? JSON.stringify(body.metadata) : null}::jsonb, metadata)
+      WHERE alias = ${alias}
+      RETURNING *
+    `);
+    return result.rows[0] || { error: 'Sensor no encontrado' };
+  }
+
+  @Delete(':alias')
+  @ApiOperation({ summary: 'Eliminar un sensor' })
+  @ApiParam({ name: 'alias', example: 'as7341' })
+  async delete(@Param('alias') alias: string) {
+    await this.db.execute(sql`DELETE FROM sensors WHERE alias = ${alias}`);
+    return { status: 'ok', message: `Sensor ${alias} eliminado` };
+  }
+}
+----- sensors.module.ts -----
+import { Module } from '@nestjs/common';
+import { SensorsController } from './sensors.controller';
+
+@Module({
+  controllers: [SensorsController],
+})
+export class SensorsModule {}
+----- telemetry.controller.ts -----
+import { Controller, Get, Param, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { TelemetryService } from './telemetry.service';
+
+@ApiTags('telemetry')
+@Controller('telemetry')
+export class TelemetryController {
+  constructor(private readonly telemetryService: TelemetryService) {}
+
+  @Get(':alias/readings')
+  @ApiOperation({ summary: 'Últimas N lecturas agrupadas del sensor' })
+  @ApiParam({ name: 'alias', example: 'as7341' })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  getReadings(@Param('alias') alias: string, @Query('limit') limit = 10) {
+    return this.telemetryService.getReadings(alias, +limit);
+  }
+
+  @Get(':alias/latest')
+  @ApiOperation({
+    summary: 'Últimas N lecturas de un sensor (todas las métricas)',
+  })
+  @ApiParam({ name: 'alias', example: 'as7341' })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  getLatest(@Param('alias') alias: string, @Query('limit') limit = 10) {
+    return this.telemetryService.getLatest(alias, +limit);
+  }
+
+  @Get(':alias/current')
+  @ApiOperation({ summary: 'Valor actual de cada métrica del sensor' })
+  @ApiParam({ name: 'alias', example: 'bme680' })
+  async getCurrent(@Param('alias') alias: string) {
+    return this.telemetryService.getCurrentValues(alias);
+  }
+
+  @Get(':alias/metrics')
+  @ApiOperation({ summary: 'Listar métricas disponibles para un sensor' })
+  @ApiParam({ name: 'alias', example: 'as7341' })
+  async getMetrics(@Param('alias') alias: string) {
+    const metrics = await this.telemetryService.getAvailableMetrics(alias);
+    return metrics.map((m) => m.metric_name);
+  }
+
+  @Get(':alias/metrics/:metricName')
+  @ApiOperation({
+    summary: 'Lecturas de una métrica específica en rango de tiempo',
+  })
+  @ApiParam({ name: 'alias', example: 'bme680' })
+  @ApiParam({ name: 'metricName', example: 'temperature' })
+  @ApiQuery({ name: 'start', required: true, example: '2026-06-23T00:00:00Z' })
+  @ApiQuery({ name: 'end', required: true, example: '2026-06-23T23:59:59Z' })
+  @ApiQuery({ name: 'limit', required: false, example: 100 })
+  getMetricRange(
+    @Param('alias') alias: string,
+    @Param('metricName') metricName: string,
+    @Query('start') start: string,
+    @Query('end') end: string,
+    @Query('limit') limit = 100,
+  ) {
+    return this.telemetryService.getByTimeRange(
+      alias,
+      metricName,
+      start,
+      end,
+      +limit,
+    );
+  }
+
+  @Get(':alias/metrics/:metricName/aggregated')
+  @ApiOperation({ summary: 'Datos agregados por hora o día' })
+  @ApiParam({ name: 'alias', example: 'bme680' })
+  @ApiParam({ name: 'metricName', example: 'temperature' })
+  @ApiQuery({
+    name: 'bucket',
+    required: false,
+    example: '1 hour',
+    enum: ['1 hour', '1 day'],
+  })
+  @ApiQuery({ name: 'start', required: true, example: '2026-06-20T00:00:00Z' })
+  @ApiQuery({ name: 'end', required: true, example: '2026-06-23T23:59:59Z' })
+  getAggregated(
+    @Param('alias') alias: string,
+    @Param('metricName') metricName: string,
+    @Query('bucket') bucket: '1 hour' | '1 day' = '1 hour',
+    @Query('start') start: string,
+    @Query('end') end: string,
+  ) {
+    return this.telemetryService.getAggregated(
+      alias,
+      metricName,
+      bucket,
+      start,
+      end,
+    );
+  }
+}
+----- telemetry.module.ts -----
+import { Module, Global } from '@nestjs/common';
+import { TelemetryService } from './telemetry.service';
+import { TelemetryController } from './telemetry.controller';
+
+@Global()
+@Module({
+  providers: [TelemetryService],
+  exports: [TelemetryService],
+  controllers: [TelemetryController],
+})
+export class TelemetryModule {}
+----- telemetry.service.ts -----
+import { Injectable, Inject, Logger } from '@nestjs/common';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { sql, SQL } from 'drizzle-orm';
+import * as crypto from 'crypto';
+import { DRIZZLE } from '../db/database.module';
+import * as schema from '../db/schema';
+import { AnalyticsService } from '../analytics/analytics.service';
+
+export interface TelemetryMessage {
+  device_id: number;
+  timestamp: string | number | null;
+  metrics: Record<string, number>;
+}
+
+@Injectable()
+export class TelemetryService {
+  private readonly logger = new Logger(TelemetryService.name);
+
+  constructor(
+    @Inject(DRIZZLE) private db: NodePgDatabase<typeof schema>,
+    private readonly analyticsService: AnalyticsService,
+  ) {}
+
+  async ingest(sensorAlias: string, message: TelemetryMessage) {
+    const { device_id, timestamp, metrics } = message;
+
+    // 1. Buscar el sensor
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) {
+      this.logger.warn(`Sensor no encontrado para alias: ${sensorAlias}`);
+      return;
+    }
+
+    // 2. Calcular el timestamp real
+    const realTime = await this.resolveTimestamp(device_id, timestamp);
+
+    // 3. Generar sample_id común para todas las métricas
+    const sampleId = crypto.randomUUID();
+
+    // 4. Payload completo (opcional)
+    const rawPayload = JSON.stringify(message);
+
+    // 5. Insertar cada métrica
+    const insertPromises = Object.entries(metrics).map(
+      ([metricName, value]) => {
+        return this.db.execute(sql`
+          INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value, raw_payload)
+          VALUES (
+            ${realTime}::timestamptz,
+            ${sampleId}::uuid,
+            ${device_id},
+            ${sensorId},
+            ${metricName},
+            ${value},
+            ${rawPayload}::jsonb
+          )
+          ON CONFLICT (time, sample_id, device_id, sensor_id, metric_name) DO NOTHING
+        `);
+      },
+    );
+
+    try {
+      await Promise.all(insertPromises);
+      this.logger.debug(
+        `Ingestado: ${Object.keys(metrics).length} métricas de ${sensorAlias}`,
+      );
+    } catch (err) {
+      this.logger.error('Error al insertar telemetría', err);
+    }
+
+    // 6. Procesar datos derivados
+    await this.analyticsService.processSensorData(
+      sensorAlias,
+      sensorId,
+      device_id,
+      sampleId,
+      realTime,
+      metrics,
+    );
+  }
+
+  private async resolveTimestamp(
+    deviceId: number,
+    timestamp: string | number | null | undefined,
+  ): Promise<string> {
+    if (typeof timestamp === 'string') {
+      return timestamp;
+    }
+
+    if (typeof timestamp === 'number') {
+      const boots = await this.query<{
+        boot_time: number;
+        server_time: string;
+      }>(sql`
+        SELECT boot_time, server_time
+        FROM device_boots
+        WHERE device_id = ${deviceId}
+        ORDER BY server_time DESC
+        LIMIT 1
+      `);
+
+      if (boots.length > 0) {
+        const { boot_time, server_time } = boots[0];
+        const bootDate = new Date(server_time);
+        const deltaMs = (timestamp - boot_time) / 1000;
+        const realDate = new Date(bootDate.getTime() + deltaMs);
+        return realDate.toISOString();
+      }
+
+      this.logger.warn(
+        `No hay boot registrado para device ${deviceId}, usando now()`,
+      );
+      return new Date().toISOString();
+    }
+
+    return new Date().toISOString();
+  }
+
+  async getLatest(sensorAlias: string, limit = 10) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+
+    return this.query<{ time: string; metric_name: string; value: number }>(sql`
+      SELECT time, metric_name, value
+      FROM telemetry
+      WHERE sensor_id = ${sensorId}
+      ORDER BY time DESC
+      LIMIT ${limit}
+    `);
+  }
+
+  async getCurrentValues(sensorAlias: string) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+
+    return this.query<{ metric_name: string; value: number; time: string }>(sql`
+      SELECT DISTINCT ON (metric_name) 
+        metric_name, 
+        value, 
+        time
+      FROM telemetry
+      WHERE sensor_id = ${sensorId}
+        AND time > now() - interval '1 hour'
+      ORDER BY metric_name, time DESC
+    `);
+  }
+
+  async getByTimeRange(
+    sensorAlias: string,
+    metricName: string,
+    start: string,
+    end: string,
+    limit = 100,
+  ) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+
+    return this.query<{ time: string; value: number }>(sql`
+      SELECT time, value
+      FROM telemetry
+      WHERE sensor_id = ${sensorId}
+        AND metric_name = ${metricName}
+        AND time BETWEEN ${start}::timestamptz AND ${end}::timestamptz
+      ORDER BY time DESC
+      LIMIT ${limit}
+    `);
+  }
+
+  async getAggregated(
+    sensorAlias: string,
+    metricName: string,
+    bucket: '1 hour' | '1 day',
+    start: string,
+    end: string,
+  ) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+
+    return this.query<{
+      bucket: string;
+      avg_value: number;
+      min_value: number;
+      max_value: number;
+      samples: number;
+    }>(sql`
+      SELECT 
+        time_bucket(${bucket}::interval, time) AS bucket,
+        avg(value) as avg_value,
+        min(value) as min_value,
+        max(value) as max_value,
+        count(*) as samples
+      FROM telemetry
+      WHERE sensor_id = ${sensorId}
+        AND metric_name = ${metricName}
+        AND time BETWEEN ${start}::timestamptz AND ${end}::timestamptz
+      GROUP BY bucket
+      ORDER BY bucket DESC
+    `);
+  }
+
+  async getAvailableMetrics(sensorAlias: string) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+
+    return this.query<{ metric_name: string }>(sql`
+      SELECT DISTINCT metric_name
+      FROM telemetry
+      WHERE sensor_id = ${sensorId}
+      ORDER BY metric_name
+    `);
+  }
+
+  async getReadings(sensorAlias: string, limit = 10) {
+    const sensorId = await this.getSensorId(sensorAlias);
+    if (!sensorId) return [];
+
+    const rows = await this.query<{
+      time: string;
+      metric_name: string;
+      value: number;
+      sample_id: string;
+    }>(sql`
+      WITH last_samples AS (
+        SELECT sample_id, MAX(time) AS time
+        FROM telemetry
+        WHERE sensor_id = ${sensorId}
+        GROUP BY sample_id
+        ORDER BY time DESC
+        LIMIT ${limit}
+      )
+      SELECT t.time, t.metric_name, t.value, t.sample_id
+      FROM telemetry t
+      JOIN last_samples s ON t.sample_id = s.sample_id
+      WHERE t.sensor_id = ${sensorId}
+      ORDER BY t.time DESC, t.metric_name
+    `);
+
+    const readings = new Map<
+      string,
+      { time: string; metrics: Record<string, number> }
+    >();
+
+    for (const row of rows) {
+      const { time, sample_id, metric_name, value } = row;
+      if (!readings.has(sample_id)) {
+        readings.set(sample_id, { time, metrics: {} });
+      }
+      readings.get(sample_id)!.metrics[metric_name] = value;
+    }
+
+    return Array.from(readings.values());
+  }
+
+  // Helpers privados
+
+  private async getSensorId(alias: string): Promise<number | null> {
+    const rows = await this.query<{ id: number }>(sql`
+      SELECT id FROM sensors WHERE alias = ${alias} LIMIT 1
+    `);
+    return rows.length ? rows[0].id : null;
+  }
+
+  private async query<T>(query: SQL): Promise<T[]> {
+    try {
+      const result = await this.db.execute(query);
+      if (!result || !('rows' in result)) {
+        throw new Error('Unexpected result format from database query');
+      }
+      return result.rows as T[];
+    } catch (err) {
+      this.logger.error('Error en consulta SQL', err);
+      return [];
+    }
+  }
+}
+----- telemetry-response.dto.ts -----
+import { ApiProperty } from '@nestjs/swagger';
+
+export class TelemetryReadingDto {
+  @ApiProperty({ example: '2026-06-23T10:15:30.123Z' })
+  time!: string;
+
+  @ApiProperty({ example: 'f1_415nm' })
+  metric_name!: string;
+
+  @ApiProperty({ example: 1234.5 })
+  value!: number;
+}
