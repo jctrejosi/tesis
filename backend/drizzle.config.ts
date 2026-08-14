@@ -7,6 +7,6 @@ export default {
   dbCredentials: {
     url:
       process.env.DATABASE_URL ||
-      'postgresql://cea_user:cea_password@localhost:5432/cea_db',
+      'postgresql://cea_user:cea_password@localhost:5433/cea_db',
   },
 } satisfies Config;

@@ -1,0 +1,17 @@
+{
+  "name": "tesis-env",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Orquestador del entorno completo de la tesis: TimescaleDB + MQTT, backend NestJS, interfaz web y firmware ESP32 (PlatformIO)",
+  "scripts": {
+    "dev": "node dev.js",
+    "dev:no-esp32": "node dev.js --skip-esp32",
+    "esp32": "node dev.js --skip-db --skip-backend --skip-web --skip-plantservice",
+    "esp32:monitor": "node dev.js --monitor-only --skip-db --skip-backend --skip-web --skip-plantservice",
+    "plant": "node dev.js --skip-db --skip-backend --skip-web --skip-esp32",
+    "down": "node dev.js --down --skip-db --skip-backend --skip-web --skip-plantservice --skip-esp32"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

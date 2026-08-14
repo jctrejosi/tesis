@@ -268,7 +268,46 @@ ESP32 → scheduler (intervalo individual) → leer sensor → MQTT growbox/<ali
 
 También se soportan lecturas bajo demanda vía `POST /config/sensors/:alias/read` → `growbox/<alias>/read`.
 
-### 11. Bibliografía
+### 11. Servicio de configuración de cultivos (plant-service)
+
+Servicio independiente en **FastAPI** (`plant-service/`) que gestiona la
+configuración ambiental de cultivos y entrega al ESP32 los **parámetros
+objetivo** que debe mantener con sus sensores y actuadores. No sustituye al
+backend NestJS: este último sigue recibiendo la telemetría MQTT y las series
+en TimescaleDB, mientras que plant-service actúa como fuente de configuración
+por fases.
+
+```text
+Interfaz web ──> FastAPI (plant-service) ──(GET /api/v1/device/config)──> ESP32
+                     ▲                                                      │
+                     └─── recomendaciones DeepSeek (validadas)               ▼
+                                                     control local: luces, ventilación,
+                                                     extracción, riego + telemetría
+```
+
+Características principales:
+
+- **Recomendación por IA**: al crear un cultivo, se consulta la API de
+  **DeepSeek** para obtener fases y parámetros (mínimo/objetivo/máximo por
+  fase). La respuesta se exige en JSON estricto y se valida con Pydantic; si
+  no cumple el schema se rechaza. DeepSeek no controla actuadores.
+- **Configuración manual**: los parámetros pueden editarse desde la interfaz
+  web (pestaña *Cultivos*); una nueva recomendación nunca sobrescribe una
+  configuración modificada manualmente (conserva la original para comparar).
+- **Fases configurables** por cultivo (germinación, plántula, vegetativa,
+  floración, fructificación, maduración u otras) con fase activa marcada.
+- **Contrato HTTP/JSON para el ESP** (`/api/v1/device/config|targets|current-phase|telemetry`)
+  con payload mínimo, versión por hash para detectar cambios y autenticación
+  por `X-API-Key`. Documentado en `plant-service/docs/esp-contract.md`.
+- **Persistencia compartida**: usa la misma TimescaleDB del proyecto con un
+  esquema dedicado `plant_service` (sin interferir con las tablas del backend).
+- Parámetros adicionales extensibles (`custom`) y parámetros informativos
+  (`informational_only`) para magnitudes que el hardware aún no puede controlar.
+
+Ejecución: `npm run plant` en la raíz (o `npm run dev` para todo el entorno;
+requiere `DEEPSEEK_API_KEY` en `plant-service/.env` para las recomendaciones).
+
+### 12. Bibliografía
 
 - Cole, K. S., & Cole, R. H. (1941). Dispersion and absorption in dielectrics. I. Alternating-current characteristics. *Journal of Chemical Physics*, 9, 341–351.
 
