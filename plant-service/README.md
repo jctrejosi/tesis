@@ -12,12 +12,22 @@ el usuario puede ajustarlas manualmente desde la interfaz web.
 
 ```text
 DeepSeek ──(recomendación JSON validada)──> FastAPI ──(parámetros objetivo)──> ESP
-                                              ▲                                  │
-                                              │  (configuración manual)         ▼
-                                        interfaz web                    sensores → telemetría
+                                              ▲
+                                              │ (configuración manual vía gateway)
+                                        NestJS (gateway :3000/plant-service/*)
+                                              ▲
+                                              │
+                                        interfaz web
 ```
 
+- La **interfaz web** habla únicamente con el backend NestJS (gateway único):
+  `http://localhost:3000/plant-service/api/v1/*` se reenvía a este servicio en
+  `http://localhost:8000/api/v1/*` (ver `backend/src/plant-proxy.ts`).
+- El **ESP** consume este servicio **directamente** (endpoints `/api/v1/device/*`),
+  no vía el gateway.
+
 El servicio es una **fuente de configuración y supervisión**, no un controlador
+que envía comandos de actuación.
 de tiempo real.
 
 ## Cómo ejecutarlo
@@ -61,6 +71,7 @@ docker run --rm -p 8000:8000 --env-file .env plant-service
 | `DB_SCHEMA`                | `plant_service`                                          | Esquema propio dentro de la base compartida. |
 | `HOST` / `PORT`            | `0.0.0.0` / `8000`                                       | Bind del servicio. |
 | `CORS_ORIGINS`             | `http://localhost:5173,http://localhost:3000`            | Orígenes permitidos (coma). |
+| `PLANT_SERVICE_URL` (backend NestJS) | `http://localhost:8000`                  | Destino del gateway `/plant-service/*` del backend. |
 | `DEEPSEEK_API_KEY`         | *(vacía)*                                                | Clave de DeepSeek. Sin ella las recomendaciones devuelven 503. |
 | `DEEPSEEK_BASE_URL`        | `https://api.deepseek.com`                               | Endpoint de la API. |
 | `DEEPSEEK_MODEL`           | `deepseek-chat`                                          | Modelo usado. |

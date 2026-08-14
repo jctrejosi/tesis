@@ -1,10 +1,29 @@
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
+import { createPlantProxy } from './plant-proxy';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const configService = app.get(ConfigService);
+
+  // CORS para la interfaz web (la web llama a este backend como gateway).
+  const corsOrigins = (configService.get<string>('CORS_ORIGINS') ??
+    'http://localhost:5173,http://localhost:3000')
+    .split(',')
+    .map((s) => s.trim());
+  app.enableCors({
+    origin: corsOrigins,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'X-API-Key'],
+  });
+
+  // Gateway hacia plant-service: la interfaz web solo habla con este backend.
+  const plantTarget = () =>
+    configService.get<string>('PLANT_SERVICE_URL') ?? 'http://localhost:8000';
+  app.use('/plant-service', createPlantProxy(plantTarget));
 
   // Configuración de Swagger
   const config = new DocumentBuilder()

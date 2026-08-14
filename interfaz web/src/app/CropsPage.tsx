@@ -7,9 +7,12 @@ import {
 
 // ─── Configuración ─────────────────────────────────────────────────────────
 
-const API_BASE =
-  (import.meta.env?.VITE_PLANT_SERVICE_URL as string | undefined) ??
-  "http://localhost:8000";
+// La web solo habla con el backend NestJS (gateway único). El backend
+// reenvía /plant-service/* a plant-service; el ESP lo consume directamente.
+const BACKEND_BASE =
+  (import.meta.env?.VITE_BACKEND_URL as string | undefined) ??
+  "http://localhost:3000";
+const API_BASE = `${BACKEND_BASE}/plant-service`;
 
 const MONO: CSSProperties = { fontFamily: "'JetBrains Mono', monospace", fontFeatureSettings: "'tnum'" };
 
@@ -373,7 +376,7 @@ export default function CropsPage() {
       const list = await api<Crop[]>("/api/v1/crops");
       setCrops(list);
     } catch (err) {
-      setError(`No se pudo conectar con plant-service (${API_BASE}): ${(err as Error).message}`);
+      setError(`No se pudo conectar con el backend (${API_BASE}): ${(err as Error).message}`);
     } finally {
       setLoading(false);
     }

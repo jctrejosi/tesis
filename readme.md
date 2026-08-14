@@ -278,11 +278,11 @@ en TimescaleDB, mientras que plant-service actúa como fuente de configuración
 por fases.
 
 ```text
-Interfaz web ──> FastAPI (plant-service) ──(GET /api/v1/device/config)──> ESP32
-                     ▲                                                      │
-                     └─── recomendaciones DeepSeek (validadas)               ▼
-                                                     control local: luces, ventilación,
-                                                     extracción, riego + telemetría
+Interfaz web ──> Backend NestJS (gateway /plant-service/*) ──> FastAPI ──(GET /api/v1/device/config)──> ESP32
+                                                                          │
+                                          └─── recomendaciones DeepSeek (validadas)                     ▼
+                                                                  control local: luces, ventilación,
+                                                                  extracción, riego + telemetría
 ```
 
 Características principales:
