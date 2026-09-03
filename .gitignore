@@ -1,2 +1,5 @@
 # Dependencias: nunca versionar node_modules en ninguna profundidad
 node_modules/
+
+# Logs generados por dev.js
+logs/

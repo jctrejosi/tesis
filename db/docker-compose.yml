@@ -9,8 +9,9 @@ services:
       POSTGRES_PASSWORD: cea_password
       POSTGRES_DB: cea_db
     ports:
-      # 5433 en el host para no chocar con otros Postgres (ej. knowledge-db en 5432)
-      - "5433:5432"
+      # Puerto 5438 en el host (5433 lo ocupa el postgres local de "contabilidad",
+      # y 5432/5434/5436/5437 otros proyectos docker). Container: 5432.
+      - "5438:5432"
     volumes:
       - timescale-data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql

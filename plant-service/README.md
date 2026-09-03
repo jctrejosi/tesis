@@ -67,7 +67,7 @@ docker run --rm -p 8000:8000 --env-file .env plant-service
 
 | Variable                   | Por defecto                                              | Descripción |
 |----------------------------|----------------------------------------------------------|-------------|
-| `DATABASE_URL`             | `postgresql+psycopg://cea_user:cea_password@localhost:5433/cea_db` | Reutiliza la **TimescaleDB compartida** del proyecto (ver `db/`). |
+| `DATABASE_URL`             | `postgresql+psycopg://cea_user:cea_password@localhost:5438/cea_db` | Reutiliza la **TimescaleDB compartida** del proyecto (ver `db/`). |
 | `DB_SCHEMA`                | `plant_service`                                          | Esquema propio dentro de la base compartida. |
 | `HOST` / `PORT`            | `0.0.0.0` / `8000`                                       | Bind del servicio. |
 | `CORS_ORIGINS`             | `http://localhost:5173,http://localhost:3000`            | Orígenes permitidos (coma). |

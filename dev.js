@@ -14,6 +14,12 @@
  * ESP32. Si `pio` no está instalado, el script levanta el resto del entorno
  * y avisa al final.
  *
+ * Cuando todo está corriendo, dev.js termina y cierra la terminal: los
+ * servicios quedan en segundo plano (propia sesión) escribiendo su salida en
+ * ./logs/*.log, y se detienen con `node dev.js --stop`. Con --keep-terminal
+ * (o un modo con monitor serial) la terminal queda abierta y Ctrl+C detiene
+ * todo.
+ *
  * Uso: node dev.js [opciones]   (o `npm run dev` en la raíz)
  * ===================================================================== */
 
@@ -31,11 +37,14 @@ const BACKEND_DIR = path.join(ROOT, 'backend');
 const WEB_DIR = path.join(ROOT, 'interfaz web');
 const PLANT_DIR = path.join(ROOT, 'plant-service');
 const ESP32_DIR = path.join(ROOT, 'esp32');
+const LOG_DIR = path.join(ROOT, 'logs');
 const MONITOR_SPEED = 115200;
 const PLANT_PORT = 8000;
 
+fs.mkdirSync(LOG_DIR, { recursive: true });
+
 const BACKEND_ENV_DEFAULT = [
-  'DATABASE_URL=postgresql://cea_user:cea_password@localhost:5433/cea_db',
+  'DATABASE_URL=postgresql://cea_user:cea_password@localhost:5438/cea_db',
   'MQTT_BROKER_URL=mqtt://localhost:1883',
   'MQTT_CLIENT_ID=cea_backend',
   '',
@@ -57,10 +66,13 @@ const COLORS = {
 const paint = (c, s) =>
   process.stdout.isTTY ? `${COLORS[c]}${s}${COLORS.reset}` : s;
 
-const log = (tag, msg) =>
-  process.stdout.write(
-    `${paint('dim', new Date().toLocaleTimeString())} ${paint('cyan', `[${tag}]`)} ${msg}\n`,
-  );
+const stripAnsi = (s) => s.replace(/\u001b\[[0-9;]*m/g, '');
+
+const log = (tag, msg) => {
+  const time = new Date().toLocaleTimeString();
+  process.stdout.write(`${paint('dim', time)} ${paint('cyan', `[${tag}]`)} ${msg}\n`);
+  fs.appendFileSync(path.join(LOG_DIR, 'dev.log'), `${time} [${tag}] ${stripAnsi(msg)}\n`);
+};
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -185,7 +197,16 @@ Uso:
   node dev.js --monitor           Sube el firmware y abre el monitor serial
   node dev.js --monitor-only      Solo abre el monitor serial del ESP32
   node dev.js --build-only        Compila el firmware ESP32 sin subirlo
-  node dev.js --down              Al salir, apaga también los contenedores docker
+  node dev.js --stop              Detiene los servicios en segundo plano (logs/*.pid)
+  node dev.js --down              Apaga también los contenedores docker
+
+Notas:
+  Cuando todo está corriendo, dev.js termina y cierra la terminal: los
+  servicios siguen vivos en segundo plano escribiendo sus logs en logs/
+  (backend.log, web.log, db.log, mqtt.log, …). Para detenerlos después:
+  node dev.js --stop  (y \`npm run down\` para los contenedores docker).
+  --keep-terminal (o un modo con monitor serial) deja la terminal abierta,
+  donde Ctrl+C detiene todo.
 
 Opciones:
   --skip-db, --skip-backend, --skip-web, --skip-plantservice, --skip-esp32   Omite un componente
@@ -195,8 +216,9 @@ Opciones:
   --baud <n>             Baud rate del monitor (por defecto: 115200)
   --watch                Backend en modo watch (por defecto)
   --prod                 Backend compilado (yarn build + node dist/main)
-  --install              Fuerza la instalación de dependencias
-  --skip-install         Omite la instalación de dependencias
+  --install              Fuerza la instalación de dependencias aunque no falten
+  --skip-install         Omite la instalación (por defecto instala solo si faltan)
+  --keep-terminal        Mantiene la terminal abierta (Ctrl+C detiene los servicios)
   -h, --help             Muestra esta ayuda
 `;
 
@@ -217,6 +239,8 @@ const opts = {
   install: false,
   skipInstall: false,
   down: false,
+  stop: false,
+  closeTerminal: true,
 };
 
 function parseArgs(argv) {
@@ -285,6 +309,12 @@ function parseArgs(argv) {
       case '--down':
         opts.down = true;
         break;
+      case '--stop':
+        opts.stop = true;
+        break;
+      case '--keep-terminal':
+        opts.closeTerminal = false;
+        break;
       default:
         log('dev', paint('yellow', `Opción desconocida: ${a} (usa --help)`));
     }
@@ -298,6 +328,12 @@ let shuttingDown = false;
 
 function prefixOutput(child, name, color = 'cyan') {
   const tag = paint(color, `[${name}]`);
+  const fileStream = fs.createWriteStream(path.join(LOG_DIR, `${name}.log`), { flags: 'a' });
+  const emit = (line) => {
+    if (!line) return;
+    process.stdout.write(`${tag} ${line}\n`);
+    if (fileStream.writable) fileStream.write(`${line}\n`);
+  };
   const drain = (stream) => {
     if (!stream) return;
     let buf = '';
@@ -307,15 +343,14 @@ function prefixOutput(child, name, color = 'cyan') {
       while ((idx = buf.indexOf('\n')) !== -1) {
         const line = buf.slice(0, idx).trimEnd();
         buf = buf.slice(idx + 1);
-        if (line) process.stdout.write(`${tag} ${line}\n`);
+        emit(line);
       }
     });
-    stream.on('end', () => {
-      if (buf.trim()) process.stdout.write(`${tag} ${buf.trimEnd()}\n`);
-    });
+    stream.on('end', () => emit(buf.trimEnd()));
   };
   drain(child.stdout);
   drain(child.stderr);
+  child.once('exit', () => fileStream.end());
 }
 
 // Mata todo el grupo de procesos del hijo (evita huérfanos tipo nest/vite).
@@ -332,18 +367,30 @@ function killTree(child, signal = 'SIGTERM') {
   }
 }
 
-// Proceso de larga duración: queda corriendo y se gestiona al salir.
-function startService(name, cmd, args, cwd, { color = 'magenta', fatal = true } = {}) {
+// Proceso de larga duración: corre desacoplado de dev.js (propia sesión) y
+// escribe su salida directamente a logs/<name>.log (pid en logs/<name>.pid).
+// Así sobrevive a la salida de dev.js y al cierre de la terminal; se detiene
+// luego con `node dev.js --stop`.
+function startService(name, cmd, args, cwd, { fatal = true } = {}) {
+  const logPath = path.join(LOG_DIR, `${name}.log`);
+  const outFd = fs.openSync(logPath, 'a');
   const child = spawn(cmd, args, {
     cwd,
     env: { ...process.env },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', outFd, outFd],
     detached: process.platform !== 'win32',
   });
+  fs.closeSync(outFd); // el hijo conserva su propia copia del descriptor
+  fs.writeFileSync(path.join(LOG_DIR, `${name}.pid`), String(child.pid));
   children.add(child);
-  prefixOutput(child, name, color);
+  log(name, `arrancando (pid ${child.pid}; salida → logs/${name}.log)`);
   child.on('exit', (code, signal) => {
     children.delete(child);
+    try {
+      fs.unlinkSync(path.join(LOG_DIR, `${name}.pid`));
+    } catch {
+      /* ya no existe */
+    }
     if (!shuttingDown && fatal && code !== null) {
       log('dev', paint('red', `${name} terminó (código ${code ?? signal}). Deteniendo el entorno.`));
       void shutdown(1);
@@ -437,33 +484,10 @@ function dbSchemaCheck() {
   }
 }
 
-// Espera a que Vite imprima su URL local.
-function waitForVite(child) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve(null);
-    }, 30000);
-    const scan = (chunk) => {
-      const m = chunk.toString().match(/Local:\s+(https?:\/\/[^\s]+)/);
-      if (m) {
-        clearTimeout(timer);
-        cleanup();
-        resolve(m[1]);
-      }
-    };
-    const cleanup = () => {
-      child.stdout.off('data', scan);
-      child.stderr.off('data', scan);
-    };
-    child.stdout.on('data', scan);
-    child.stderr.on('data', scan);
-    child.once('exit', () => {
-      clearTimeout(timer);
-      cleanup();
-      resolve(null);
-    });
-  });
+// Espera a que el dev server de Vite responda (puerto por defecto 5173).
+async function waitForWeb() {
+  const ok = await waitFor('web', () => httpOk('http://localhost:5173'), 60000);
+  return ok ? 'http://localhost:5173' : null;
 }
 
 /* --------------------------- pasos del flujo ------------------------ */
@@ -484,9 +508,11 @@ async function installDeps(dir, label) {
     log(label, 'sin lockfile detectable, se omite la instalación');
     return true;
   }
-  const bin = which(pm);
+  // Prefiere el gestor del lockfile; si no está en el PATH (p. ej. yarn
+  // ausente), cae a npm para que la instalación siempre pueda ejecutarse.
+  const bin = which(pm) || which('npm');
   if (!bin) {
-    log(label, paint('yellow', `${pm} no está en el PATH`));
+    log(label, paint('yellow', `${pm} ni npm están en el PATH`));
     return false;
   }
   const code = await runOnce(label, bin, ['install'], dir);
@@ -534,8 +560,14 @@ function startMonitor() {
     detached: process.platform !== 'win32',
   });
   children.add(child);
+  fs.writeFileSync(path.join(LOG_DIR, 'monitor.pid'), String(child.pid));
   child.on('exit', (code) => {
     children.delete(child);
+    try {
+      fs.unlinkSync(path.join(LOG_DIR, 'monitor.pid'));
+    } catch {
+      /* ya no existe */
+    }
     if (!shuttingDown) log('esp32', `monitor serial cerrado (código ${code})`);
   });
   return child;
@@ -563,16 +595,142 @@ function printSummary(webUrl) {
     );
   }
   console.log('');
+  const keepOpen = opts.monitor || opts.monitorOnly || !opts.closeTerminal;
   console.log(
     paint(
       'dim',
-      `  Ctrl+C para detener todo${opts.down ? ' y apagar los contenedores docker' : ' (los contenedores docker quedan arriba; usa --down para apagarlos)'}`,
+      keepOpen
+        ? '  Ctrl+C para detener todo. Logs en logs/.'
+        : '  Los servicios siguen en segundo plano (logs en logs/). Para detenerlos: node dev.js --stop',
     ),
   );
   console.log('');
 }
 
+/* ------------------------- cierre de la terminal ---------------------- */
+
+// Nombre (comm) de un proceso dado (Linux vía /proc; macOS vía ps).
+function procComm(pid) {
+  try {
+    if (process.platform === 'linux') return fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
+    const r = spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000 });
+    return (r.stdout || '').toString().trim();
+  } catch {
+    return null;
+  }
+}
+
+// PID del padre de un proceso.
+function procParent(pid) {
+  try {
+    if (process.platform === 'linux') {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const m = stat.match(/\)\s+\w\s+(\d+)/); // tras el comm: estado + ppid
+      return m ? Number(m[1]) : null;
+    }
+    const r = spawnSync('ps', ['-o', 'ppid=', '-p', String(pid)], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000 });
+    const n = parseInt((r.stdout || '').toString().trim(), 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+const SHELL_NAMES = new Set(['bash', 'zsh', 'fish', 'dash', 'sh', 'ksh', 'csh', 'tcsh']);
+
+// Sube por la cadena de procesos hasta la shell de la terminal que lanzó
+// dev.js (si se ejecutó vía npm/yarn, el padre es node; más arriba está la shell).
+function terminalShellPid() {
+  if (process.platform === 'win32') return process.ppid;
+  let pid = process.ppid;
+  for (let depth = 0; pid && pid > 1 && depth < 16; depth++) {
+    const name = procComm(pid);
+    if (name && SHELL_NAMES.has(name)) return pid;
+    pid = procParent(pid);
+  }
+  return process.ppid;
+}
+
+// Lanza un helper desacoplado que cerrará la terminal cuando este proceso muera.
+function scheduleTerminalClose() {
+  const target = terminalShellPid();
+  const child = spawn(process.execPath, [__filename], {
+    stdio: 'ignore',
+    detached: true,
+    env: { ...process.env, DEV_TERM_CLOSE_PID: String(target) },
+  });
+  child.unref();
+  log('dev', paint('dim', `la terminal se cerrará al salir (pid ${target}; usa --keep-terminal para evitarlo)`));
+}
+
 /* ----------------------------- apagado ------------------------------ */
+
+function cleanupPidFiles() {
+  if (!fs.existsSync(LOG_DIR)) return;
+  for (const f of fs.readdirSync(LOG_DIR)) {
+    if (f.endsWith('.pid')) {
+      try {
+        fs.unlinkSync(path.join(LOG_DIR, f));
+      } catch {
+        /* ya no existe */
+      }
+    }
+  }
+}
+
+// Detiene los servicios que una corrida anterior dejó en segundo plano.
+async function stopBackgroundServices() {
+  if (!fs.existsSync(LOG_DIR)) return;
+  const signaled = [];
+  for (const f of fs.readdirSync(LOG_DIR)) {
+    if (!f.endsWith('.pid')) continue;
+    const name = f.slice(0, -4);
+    try {
+      const pid = Number.parseInt(fs.readFileSync(path.join(LOG_DIR, f), 'utf8'), 10);
+      if (!Number.isInteger(pid) || pid <= 1) continue;
+      // Termina el grupo del proceso (cubre hijos anidados tipo nest/vite).
+      if (process.platform !== 'win32') {
+        try {
+          process.kill(-pid, 'SIGTERM');
+        } catch {
+          try {
+            process.kill(pid, 'SIGTERM');
+          } catch {
+            continue; // ya terminó
+          }
+        }
+      } else {
+        try {
+          process.kill(pid, 'SIGTERM');
+        } catch {
+          continue; // ya terminó
+        }
+      }
+      signaled.push({ name, pid });
+      log('dev', `detenido ${name} (pid ${pid})`);
+    } catch {
+      /* pid ilegible */
+    }
+  }
+  if (!signaled.length) {
+    log('dev', 'no hay servicios en segundo plano (logs/*.pid)');
+    return;
+  }
+  await sleep(1500);
+  for (const { name, pid } of signaled) {
+    try {
+      if (process.platform !== 'win32') process.kill(-pid, 'SIGKILL');
+      else process.kill(pid, 'SIGKILL');
+    } catch {
+      /* ya terminó */
+    }
+    try {
+      fs.unlinkSync(path.join(LOG_DIR, `${name}.pid`));
+    } catch {
+      /* ya no existe */
+    }
+  }
+}
 
 async function shutdown(code) {
   if (shuttingDown) return;
@@ -582,9 +740,14 @@ async function shutdown(code) {
   for (const c of [...children]) killTree(c);
   await sleep(2500);
   for (const c of [...children]) killTree(c, 'SIGKILL');
+  cleanupPidFiles();
   if (opts.down) {
     const r = await runOnce('db', 'docker', ['compose', 'down'], DB_DIR, 'blue');
     if (r === 0) log('db', 'contenedores docker apagados');
+  }
+  if (code === 0 && opts.closeTerminal && process.stdin.isTTY) {
+    scheduleTerminalClose();
+    await sleep(300); // deja que la salida final se vacíe antes de morir
   }
   process.exit(code);
 }
@@ -595,6 +758,12 @@ async function main() {
   console.log(paint('magenta', '='.repeat(64)));
   console.log(paint('magenta', '  Entorno completo — Sistema de cultivo automatizado (tesis)'));
   console.log(paint('magenta', '='.repeat(64)));
+
+  // 0. Detener los servicios que una corrida anterior dejó en segundo plano.
+  if (opts.stop) {
+    await stopBackgroundServices();
+    process.exit(0);
+  }
 
   const parts = [];
   if (!opts.skipDb) parts.push('DB + MQTT (docker)');
@@ -663,6 +832,9 @@ async function main() {
     await waitFor('db', dbReady, 180000);
     dbSchemaCheck();
     await waitFor('mqtt', () => tcpReachable(1883), 30000);
+    // Vuelca los logs de los contenedores a logs/db.log y logs/mqtt.log.
+    startService('db', 'docker', ['logs', '-f', 'cea-timescaledb'], DB_DIR, { fatal: false });
+    startService('mqtt', 'docker', ['logs', '-f', 'cea-mqtt'], DB_DIR, { fatal: false });
   }
 
   // 3. Dependencias (solo si faltan o con --install).
@@ -701,8 +873,8 @@ async function main() {
 
   // 5. Interfaz web (Vite).
   if (!opts.skipWeb) {
-    const child = startService('web', webRunner.bin, scriptArgs(webRunner, 'dev'), WEB_DIR, 'green');
-    webUrl = await waitForVite(child);
+    startService('web', webRunner.bin, scriptArgs(webRunner, 'dev'), WEB_DIR);
+    webUrl = await waitForWeb();
   }
 
   // 6. plant-service (FastAPI): venv + dependencias + uvicorn.
@@ -725,7 +897,7 @@ async function main() {
         process.exit(1);
       }
     }
-    startService('plant', venvPython, ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', String(PLANT_PORT)], PLANT_DIR, 'cyan');
+    startService('plant', venvPython, ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', String(PLANT_PORT)], PLANT_DIR);
     await waitFor('plant', () => httpOk(`http://localhost:${PLANT_PORT}/api/v1/health`), 60000);
   }
 
@@ -756,10 +928,46 @@ async function main() {
   }
 
   printSummary(webUrl);
+
+  // ¿Hay que dejar la terminal abierta? (monitor serial o --keep-terminal).
+  const keepOpen = opts.monitor || opts.monitorOnly || !opts.closeTerminal;
+  if (keepOpen) {
+    log('dev', paint('dim', 'Servicios arriba. Ctrl+C para detenerlos (logs en logs/).'));
+    setInterval(() => {}, 2147483647); // mantiene vivo el proceso hasta Ctrl+C
+    return;
+  }
+
+  // Todo corriendo: dev.js termina y cierra la terminal. Los servicios ya
+  // corren en su propia sesión con salida a logs/*.log, así que sobreviven.
+  await sleep(800); // deja que la salida final se vacíe
+  log('dev', paint('green', 'Entorno corriendo en segundo plano. Cerrando la terminal…'));
+  if (process.stdin.isTTY) scheduleTerminalClose();
+  process.exit(0);
 }
 
-process.on('SIGINT', () => void shutdown(0));
-process.on('SIGTERM', () => void shutdown(0));
+if (process.env.DEV_TERM_CLOSE_PID) {
+  // Helper desacoplado lanzado por scheduleTerminalClose(): termina la shell
+  // de la terminal (o el proceso padre, en Windows) un instante después de
+  // que dev.js haya salido por completo.
+  const target = Number(process.env.DEV_TERM_CLOSE_PID) || process.ppid;
+  const force = () => {
+    if (process.platform !== 'win32') {
+      try { process.kill(target, 'SIGKILL'); } catch { /* ya terminó */ }
+    }
+    process.exit(0);
+  };
+  setTimeout(() => {
+    if (process.platform === 'win32') {
+      try { spawnSync('taskkill', ['/F', '/T', '/PID', String(target)], { stdio: 'ignore' }); } catch { /* ya terminó */ }
+      process.exit(0);
+    }
+    try { process.kill(target, 'SIGTERM'); } catch { /* ya terminó */ }
+    setTimeout(force, 1500);
+  }, 600);
+} else {
+  process.on('SIGINT', () => void shutdown(0));
+  process.on('SIGTERM', () => void shutdown(0));
 
-parseArgs(process.argv.slice(2));
-void main();
+  parseArgs(process.argv.slice(2));
+  void main();
+}

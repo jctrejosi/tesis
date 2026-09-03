@@ -9,6 +9,7 @@
     "esp32": "node dev.js --skip-db --skip-backend --skip-web --skip-plantservice",
     "esp32:monitor": "node dev.js --monitor-only --skip-db --skip-backend --skip-web --skip-plantservice",
     "plant": "node dev.js --skip-db --skip-backend --skip-web --skip-esp32",
+    "stop": "node dev.js --stop",
     "down": "node dev.js --down --skip-db --skip-backend --skip-web --skip-plantservice --skip-esp32"
   },
   "engines": {
