@@ -1,0 +1,10 @@
+{
+  "file_scan_exclusions": [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/dist/**",
+    "**/.vite/**",
+    "**/*.map",
+    "**/*.lock"
+  ]
+}

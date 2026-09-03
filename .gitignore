@@ -1,0 +1,2 @@
+# Dependencias: nunca versionar node_modules en ninguna profundidad
+node_modules/
