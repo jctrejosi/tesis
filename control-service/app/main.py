@@ -1,25 +1,44 @@
 from __future__ import annotations
 
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-SERVICE_NAME = "control-service"
+from app.api_routes import router
+from app.clients import AstarothClient
+from app.core.config import Settings, get_settings
+from app.core.database import close_db, init_db
+
+logger = logging.getLogger("control-service")
 VERSION = "0.1.0"
 
-app = FastAPI(
-    title=SERVICE_NAME,
-    description=(
-        "Control MPC/RL del sistema de cultivo automatizado (capas 3–7 de "
-        "`docs/arquitectura.md`). Estado, world model, MPC, safety y actuación."
-    ),
-    version=VERSION,
-)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings: Settings = app.state.settings
+    await init_db(settings)
+    app.state.astaroth = AstarothClient(settings)
+    logger.info("control-service listo en http://%s:%s", settings.host, settings.port)
+    yield
+    await app.state.astaroth.aclose()
+    await close_db()
 
 
-@app.get("/health", summary="Salud del servicio")
-async def health() -> dict:
-    return {"status": "ok", "service": SERVICE_NAME, "version": VERSION}
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
+    app = FastAPI(
+        title="control-service",
+        description=(
+            "Control MPC/RL del sistema de cultivo automatizado (capas 3–7 de "
+            "docs/arquitectura.md): estado x_t, world model (Astaroth), MPC, safety."
+        ),
+        version=VERSION,
+        lifespan=lifespan,
+    )
+    app.state.settings = settings
+    app.include_router(router)
+    return app
 
 
-@app.get("/", include_in_schema=False)
-async def root() -> dict:
-    return {"service": SERVICE_NAME, "docs": "/docs", "health": "/health"}
+app = create_app()

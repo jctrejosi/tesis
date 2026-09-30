@@ -92,8 +92,9 @@ exacto a horizonte corto; RL destila o extiende a horizonte largo; Safety veta; 
 > (regresión + metadata en `saved_models/{name}/`); `transformerApi` **con imports
 > rotos** (`api.main` vs `apis.main`) y falta el objeto `config`; `causalTransformer-api`
 > es el más alineado pero **falta `src/models/`** (no vendorizado) y arrastra
-> Celery+Hydra+MLflow+Ray. Por eso: **adoptar contratos, implementar baseline en
-> `control-service`, integrar neuronal después** (decisión A6).
+> Celery+Hydra+MLflow+Ray. **Decisión (A6/D9):** se **consumen por HTTP** (`XGBoost-api`
+> :8011, `transformerApi` :8013, `causalTransformer-api` :8014) y se **reparan** en la fase
+> que los use (D10), no se reimplementan.
 
 ---
 
@@ -172,6 +173,13 @@ arranque en frío); la fuente de verdad es `E`, versionada.
 exploración suave durante la fase de recolección. **Implementada**: `scripts/excite.js`
 > (`npm run excite`) conmuta canales con baja probabilidad respetando las `constraints`
 > del registro (`min_interval_s`, `max_duration_s`, `cooldown_s`, `max_switches_per_hour`).
+
+**Estimación (implementada ✅).** `control-service/app/effect.py` + `GET /effect`:
+para cada canal y variable calcula `delta = media(ON) − media(OFF)` y su versión
+estandarizada (`effect`), con `n_on/n_off` y confianza; y un ranking de canales por
+variable. Es la estimación **barata**: no controla todavía por hora/otros canales, así
+que coeficientes grandes pueden reflejar correlación temporal (refinable con
+transiciones o controlando por `d_t`).
 
 **Consecuencias de diseño**
 
@@ -315,7 +323,7 @@ de entorno antes de toda la parte de modelos.
 |---|---|---|---|---|
 | **0 ✅** | 2 | Datos y contratos | `control_actions`, `x_t` v1, `build_dataset`, marca `simulated`, setpoints históricos | Reconstruir `(x_t,u_t,x_{t+1})`; tensores con split temporal |
 | **1 — Entorno con dinámica** | 1–2 | Que el sistema tenga **dinámica que aprender** y esté configurable | Simulador con física (relé→sensores); registro de actuadores (función/constraints) + snapshot; contrato `d_t`; esqueleto `control-service` en `dev.js` | Al accionar un canal en sim, la variable acoplada cambia de forma monótona y reproducible, y la matriz `E` la recupera |
-| **2 — State estimator + baselines** | 3, 4(barata) | `x_t` usable y predicción mínima medida | `state.py`; baselines persistencia + XGBoost + iTransformer; `/predict`; métricas | Baseline supera a persistencia; `dataset_hash` versionado |
+| **2 — State estimator + baselines** | 3, 4(barata) | `x_t` usable y predicción mínima medida | `state.py`; **montar + reparar Astaroth**; baselines persistencia + XGBoost + iTransformer (vía HTTP); `/predict`; métricas | Baseline supera a persistencia; `dataset_hash` versionado |
 | **3 — World model condicionado** | 4 | Predicción condicionada a acciones | Integración CausalFormer (contrato §4.2); rollout multi-paso; comparación vs Fase 2 | Rollout `H` pasos con MAE/RMSE por horizonte ≤ baseline |
 | **4 — MPC + Safety + Actuación** | 5,6,7 | Cerrar el lazo, primero en shadow | `mpc.py`, `safety.py`, `actuation.py`, tablas `control_decisions` | Shadow: propone y registra; Safety rechaza casos de prueba; real: el ESP confirma |
 | **5 — RL** | 5,9 | Política rápida / horizonte largo | Entorno RL (sim con física); política π; MBRL sobre el world model | La política iguala al MPC en sim y/o lo supera a horizonte largo, con Safety activo |
@@ -338,6 +346,13 @@ variables del ambiente), registro de actuadores + snapshots (`plant-service`:
 `static_features`) y `scripts/excite.js` (excitación suave guiada por `constraints`).
 Desbloquea la Fase 2.
 
+**Estado Fase 2 (✅).** Hecho: `control-service` con `state.py` (`GET /state`),
+baselines persistencia / XGBoost / iTransformer consumidos de **Astaroth por HTTP**,
+`POST /predict` (H configurable), `POST /evaluate` (MAE/RMSE vs persistencia),
+registry (`control_service.model_registry`) y **matriz de efecto `E`** (`GET /effect`).
+**Astaroth montado y reparado**: `transformerApi` (imports `api.main`→`apis.config`, +
+`config`) y `XGBoost-api` (`DataService.records_to_dataframe`). Desbloquea la Fase 3.
+
 ---
 
 ## 7. Decisiones abiertas (a cerrar antes de Fase 2)
@@ -352,6 +367,10 @@ Desbloquea la Fase 2.
 | D6 | Rol de RL | destilación del MPC + MBRL; no RL libre primero |
 | D7 | Fuente única de telemetría | consolidar en `telemetry` (backend) |
 | D8 | Relación canal→variable | **aprendida** (matriz `E`), no declarada |
+| D9 | Modelos de predicción | **se consumen de Astaroth por HTTP** (:8011/:8013/:8014), no se reimplementan |
+| D10 | Reparación de Astaroth | en la fase que los use: `transformerApi` (imports + `config`) en Fase 2; `causalTransformer` (`src/models/`) en Fase 3 |
+| D11 | Cadencia / ventana / horizonte | `freq=1 min`, `k=15`, `H=6` |
+| D12 | Normalización | z-score por variable (robusto si hay outliers), ajustado en train y **compartido con el coste del MPC** |
 
 ---
 
@@ -366,11 +385,11 @@ Desbloquea la Fase 2.
 | Política de excitación suave (para poder aprender `E`) | ✅ | 1 |
 | Contrato `d_t` | ✅ | 1 |
 | `control-service/` (esqueleto, `dev.js`, `/health`) | ✅ | 1 |
-| `state.py` (ventana, imputación, normalización) | ❌ | 2 |
-| Baseline persistencia + XGBoost + iTransformer | ❌ | 2 |
-| `/predict`, métricas MAE/RMSE vs persistencia | ❌ | 2 |
-| **Matriz de efecto `E[canal][variable]`** (aprendida, SHAP/sensibilidad) | ❌ | 2–3 |
-| Registry de modelos (versión, `dataset_hash`) | ❌ | 2 |
+| `state.py` (ventana, imputación, normalización) | ✅ | 2 |
+| Baseline persistencia + XGBoost + iTransformer | ✅ | 2 |
+| `/predict`, métricas MAE/RMSE vs persistencia | ✅ | 2 |
+| **Matriz de efecto `E[canal][variable]`** (aprendida, SHAP/sensibilidad) | ✅ | 2 |
+| Registry de modelos (versión, `dataset_hash`) | ✅ | 2 |
 | World model CausalFormer integrado | ❌ | 3 |
 | Rollout multi-paso condicionado | ❌ | 3 |
 | `mpc.py` (enumeración) | ❌ | 4 |

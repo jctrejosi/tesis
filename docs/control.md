@@ -36,10 +36,10 @@ relevantes para predicción:
 | `clustering-api` | 8010 | — | No modela dinámica; solo útil para discretizar regímenes |
 | `core/` | — | Ingesta/limpieza legacy (`.ADT`, RFM) | Acoplado al ecommerce |
 
-**Recomendación:** adoptar la **arquitectura** del `causalTransformer`
-(`prev_outputs`, `prev_treatments`, `current_treatments`, `static_features`,
-`active_entries`) como contrato conceptual, e implementarla primero con un
-baseline propio en `tesis/control-service`. El modelo neuronal se integra después.
+**Recomendación:** consumir `causalTransformer-api` **por HTTP** (puerto 8014) como
+world model del MPC, reparando/vendorizando lo que falte (`src/models/`) en la fase que
+se use (decisión A6/D9–D10). El contrato conceptual a replicar es el de la tabla de
+arriba.
 
 Contrato de datos de `causalTransformer-api` (a replicar):
 

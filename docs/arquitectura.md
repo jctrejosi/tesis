@@ -246,7 +246,7 @@ interconexiones (broker, dependencias del backend, gateway backend→plant).
 | A3 | **Un solo almacén de telemetría** | Evitar divergencia backend vs plant-service |
 | A4 | **Toda acción se registra** (incluidas manuales y rechazadas) | Sin `u_t` no hay world model ni auditoría |
 | A5 | **Shadow mode primero** | Valida predicciones/decisiones sin riesgo físico |
-| A6 | **Reutilizar la arquitectura de Astaroth**, no su pipeline | Astaroth está acoplado al ecommerce (`core/adt.py`, RFM, Celery/MLflow) |
+| A6 | **Consumir los modelos de Astaroth por HTTP**, no reimplementarlos | Instanciar `XGBoost-api` (:8011), `transformerApi` (:8013) y `causalTransformer-api` (:8014) y apuntar por URL; reparar lo que falte en la fase que los use |
 
 ## 6. Riesgos
 
