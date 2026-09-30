@@ -36,6 +36,7 @@ const DB_DIR = path.join(ROOT, 'db');
 const BACKEND_DIR = path.join(ROOT, 'backend');
 const WEB_DIR = path.join(ROOT, 'interfaz web');
 const PLANT_DIR = path.join(ROOT, 'plant-service');
+const CONTROL_DIR = path.join(ROOT, 'control-service');
 const ESP32_DIR = path.join(ROOT, 'esp32');
 const ESP_SIM_PATH = path.join(ROOT, 'tools', 'esp-sim.js');
 const LOG_DIR = path.join(ROOT, 'logs');
@@ -48,10 +49,12 @@ const MONITOR_SPEED = 115200;
 const DEFAULT_BACKEND_PORT = 3000;
 const DEFAULT_WEB_PORT = 5173;
 const DEFAULT_PLANT_PORT = 8000;
+const DEFAULT_CONTROL_PORT = 8100;
 const PORTS = {
   backend: DEFAULT_BACKEND_PORT,
   web: DEFAULT_WEB_PORT,
   plant: DEFAULT_PLANT_PORT,
+  control: DEFAULT_CONTROL_PORT,
 };
 
 fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -190,6 +193,19 @@ function plantVenvPython() {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
+function controlVenvPython() {
+  const exe = process.platform === 'win32' ? 'python.exe' : 'python';
+  const candidate = path.join(CONTROL_DIR, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin', exe);
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+function controlDepsOk() {
+  const python = controlVenvPython();
+  if (!python) return false;
+  const r = spawnSync(python, ['-c', 'import fastapi, uvicorn'], { cwd: CONTROL_DIR, stdio: 'ignore', timeout: 15000 });
+  return r.status === 0;
+}
+
 function plantDepsOk() {
   const python = plantVenvPython();
   if (!python) return false;
@@ -227,6 +243,7 @@ dev.js — Levanta el entorno completo del proyecto de tesis
   backend/               API NestJS en http://localhost:3000 (Swagger en /api/docs)
   interfaz web/          Dev server Vite en http://localhost:5173
   plant-service/         FastAPI en http://localhost:8000 (docs en /docs)
+  control-service/       FastAPI en http://localhost:8100 (MPC/RL; esqueleto)
   esp32/                 Firmware PlatformIO (build + upload [+ monitor serial])
 
 Uso:
@@ -251,7 +268,7 @@ Notas:
   puedes forzarlo con --esp-simulation.
 
 Opciones:
-  --skip-db, --skip-backend, --skip-web, --skip-plantservice, --skip-esp32   Omite un componente
+  --skip-db, --skip-backend, --skip-web, --skip-plantservice, --skip-controlservice, --skip-esp32   Omite un componente
   --esp-simulation       ESP simulado por MQTT (sin placa ni PlatformIO)
   --env <nombre>         Entorno de PlatformIO (por defecto: esp32dev)
   --upload-port <p>      Puerto serie para subir el firmware (ej. /dev/ttyUSB0)
@@ -260,6 +277,7 @@ Opciones:
   --backend-port <p>     Puerto del backend NestJS (por defecto: 3000)
   --web-port <p>         Puerto de la interfaz web Vite (por defecto: 5173)
   --plant-port <p>       Puerto de plant-service (por defecto: 8000)
+  --control-port <p>     Puerto de control-service (por defecto: 8100)
                          Si un puerto está ocupado, se termina el proceso que lo usa.
   --watch                Backend en modo watch (por defecto)
   --prod                 Backend compilado (yarn build + node dist/main)
@@ -275,6 +293,7 @@ const opts = {
   skipBackend: false,
   skipWeb: false,
   skipPlantservice: false,
+  skipControlservice: false,
   skipEsp32: false,
   espSimulation: false,
   buildOnly: false,
@@ -287,6 +306,7 @@ const opts = {
   backendPort: Number(process.env.BACKEND_PORT) || DEFAULT_BACKEND_PORT,
   webPort: Number(process.env.WEB_PORT) || DEFAULT_WEB_PORT,
   plantPort: Number(process.env.PLANT_PORT) || DEFAULT_PLANT_PORT,
+  controlPort: Number(process.env.CONTROL_PORT) || DEFAULT_CONTROL_PORT,
   prod: false,
   install: false,
   skipInstall: false,
@@ -322,6 +342,10 @@ function parseArgs(argv) {
       case '--skip-plantservice':
       case '--no-plantservice':
         opts.skipPlantservice = true;
+        break;
+      case '--skip-controlservice':
+      case '--no-controlservice':
+        opts.skipControlservice = true;
         break;
       case '--skip-esp32':
       case '--no-esp32':
@@ -360,6 +384,9 @@ function parseArgs(argv) {
         break;
       case '--plant-port':
         opts.plantPort = parseInt(next(), 10) || opts.plantPort;
+        break;
+      case '--control-port':
+        opts.controlPort = parseInt(next(), 10) || opts.controlPort;
         break;
       case '--watch':
         opts.prod = false;
@@ -770,6 +797,9 @@ function printSummary(webUrl) {
   if (!opts.skipPlantservice) {
     console.log(`  plant-service ->  http://localhost:${PORTS.plant}  (docs: http://localhost:${PORTS.plant}/docs)`);
   }
+  if (!opts.skipControlservice) {
+    console.log(`  control-service ->  http://localhost:${PORTS.control}  (docs: http://localhost:${PORTS.control}/docs)`);
+  }
   if (!opts.skipEsp32) {
     const espText = opts.espSimulation
       ? 'simulado (MQTT, sin hardware)'
@@ -1052,6 +1082,7 @@ async function main() {
   if (!opts.skipBackend) parts.push('Backend NestJS');
   if (!opts.skipWeb) parts.push('Interfaz web (Vite)');
   if (!opts.skipPlantservice) parts.push('plant-service (FastAPI)');
+  if (!opts.skipControlservice) parts.push('control-service (FastAPI)');
   if (!opts.skipEsp32) parts.push('ESP32 (PlatformIO)');
   if (parts.length) log('dev', `Se levantarán: ${parts.join(', ')}`);
 
@@ -1081,10 +1112,10 @@ async function main() {
     process.exit(1);
   }
   let pythonBin = null;
-  if (!opts.skipPlantservice) {
+  if (!opts.skipPlantservice || !opts.skipControlservice) {
     pythonBin = findPython();
     if (!pythonBin) {
-      log('dev', paint('red', 'No se encontró Python 3 para levantar plant-service. Instálalo o usa --skip-plantservice.'));
+      log('dev', paint('red', 'No se encontró Python 3 para levantar plant-service/control-service. Instálalo o usa --skip-plantservice/--skip-controlservice.'));
       process.exit(1);
     }
   }
@@ -1115,6 +1146,7 @@ async function main() {
   if (!opts.skipBackend) PORTS.backend = await ensurePortFree(opts.backendPort, 'backend');
   if (!opts.skipWeb) PORTS.web = await ensurePortFree(opts.webPort, 'web');
   if (!opts.skipPlantservice) PORTS.plant = await ensurePortFree(opts.plantPort, 'plant-service');
+  if (!opts.skipControlservice) PORTS.control = await ensurePortFree(opts.controlPort, 'control-service');
 
   // 2. .env del backend (no pisa uno existente).
   if (!opts.skipBackend) ensureBackendEnv();
@@ -1242,7 +1274,33 @@ async function main() {
     }
   }
 
-  // 7. ESP32: placa real (build → upload → monitor) o dispositivo simulado.
+  // 7. control-service (FastAPI): esqueleto del MPC/RL (capas 3–7).
+  if (!opts.skipControlservice) {
+    let venvPython = controlVenvPython();
+    if (!venvPython) {
+      log('control', 'creando entorno virtual (.venv)…');
+      const venvCode = await runOnce('control', pythonBin, ['-m', 'venv', '.venv'], CONTROL_DIR, 'blue');
+      venvPython = venvCode === 0 ? controlVenvPython() : null;
+      if (!venvPython) {
+        log('dev', paint('red', 'No se pudo crear el venv de control-service.'));
+        process.exit(1);
+      }
+    }
+    if (!opts.skipInstall && (opts.install || !controlDepsOk())) {
+      const pipCode = await runOnce('control', venvPython, ['-m', 'pip', 'install', '-r', 'requirements.txt'], CONTROL_DIR, 'blue');
+      if (pipCode !== 0) {
+        log('dev', paint('red', 'La instalación de dependencias de control-service falló.'));
+        process.exit(1);
+      }
+    }
+    startService('control', venvPython, ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', String(PORTS.control)], CONTROL_DIR);
+    const controlUp = await waitFor('control', () => httpOk(`http://localhost:${PORTS.control}/health`), 60000);
+    log('control', controlUp
+      ? paint('green', `esqueleto OK (:${PORTS.control})`)
+      : paint('yellow', `no respondió en :${PORTS.control}`));
+  }
+
+  // 8. ESP32: placa real (build → upload → monitor) o dispositivo simulado.
   if (!opts.skipEsp32) {
     if (opts.espSimulation) {
       if (opts.monitorOnly || opts.monitor) {

@@ -62,14 +62,18 @@ flowchart TD
 | Actuador | Relé 4 canales | `esp32/src/actuators/relay/*` |
 | Config del dispositivo | WiFi, broker, OTA, `device_id` | `esp32/include/app_config.h`, `esp32/src/mqtt/device_config.cpp` |
 
-Mapeo de canales del relé (ver `readme.md` §10):
+Canales del relé: **genéricos y configurables** (ver `especificacion.md` §4.3). Cada
+canal es libre y se configura para lo que se conecte (luz, ventilación, extracción,
+humidificación, riego, calor, CO₂…). La semántica **no** está en el número de canal sino
+en su configuración, de modo que el sistema es independiente del dispositivo conectado.
+Una convención de arranque (no obligatoria) es:
 
-| Canal | Nombre | Uso |
-|---|---|---|
-| 1 | `canal_1` | Ventilación principal |
-| 2 | `canal_2` | Iluminación principal |
-| 3 | `canal_3` | Riego principal |
-| 4 | `canal_4` | Libre / reserva |
+| Canal | Uso típico |
+|---|---|
+| 1 | Ventilación |
+| 2 | Iluminación |
+| 3 | Riego |
+| 4 | Libre / extracción |
 
 > ⚠️ Hoy los sensores corren en **modo simulación** (no se detectan por I²C/UART).
 > Ver `datos.md` §7.
@@ -89,6 +93,14 @@ stack (backend, DB, plant-service) funciona sin hardware.
 
 Variables opcionales del simulador: `MQTT_BROKER_URL`, `SIM_CLIENT_ID`,
 `DEVICE_ID` y `SIM_INTERVAL_*_MS` (ver cabecera de `tools/esp-sim.js`).
+
+**Física del simulador (Fase 1 ✅).** El simulador ya no emite ruido independiente:
+mantiene un estado de ambiente que evoluciona por relajación hacia un equilibrio
+que **depende de qué relés están activos**. Cada canal tiene una `function`
+(`ventilation`, `light`, `irrigation`…) que empuja unas variables (p. ej. ventilación
+baja temperatura, humedad y CO₂). Así `u_t` influye en `x_{t+1}` y el *world model*
+tiene dinámica que aprender. `SIM_PHYSICS=0` recupera el comportamiento anterior y
+`SIM_FN_1..SIM_FN_4` cambian la función de cada canal.
 
 ### Capa 2 — Data platform 🟡
 
@@ -220,7 +232,7 @@ sequenceDiagram
 | plant-service (FastAPI) | 8000 | `plant-service/` (uvicorn) |
 | Firmware ESP32 | `/dev/ttyUSB0` | `esp32/` (PlatformIO) |
 | ESP simulado *(sin hardware)* | — (MQTT 1883) | `tools/esp-sim.js` vía `dev.js --esp-simulation` |
-| **control-service** *(propuesto)* | 8100 | nuevo, integrado en `dev.js` |
+| **control-service** (esqueleto ✅) | 8100 | `control-service/`, integrado en `dev.js` (MPC/RL; ver `especificacion.md`) |
 
 Todo se orquesta con `node dev.js` (ver `dev.js`), que además valida las
 interconexiones (broker, dependencias del backend, gateway backend→plant).

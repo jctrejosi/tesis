@@ -17,6 +17,7 @@ apoyándose en la plataforma de predicción **Astaroth** para el *world model*.
 | [`control.md`](./control.md) | Capas 4–7: world model (Astaroth), MPC, safety y actuación. |
 | [`observabilidad-aprendizaje.md`](./observabilidad-aprendizaje.md) | Capas 8–9: métricas, trazas de decisión y reentrenamiento. |
 | [`roadmap.md`](./roadmap.md) | Fases de implementación con entregables y criterios de aceptación. |
+| [`especificacion.md`](./especificacion.md) | **Especificación de implementación MPC/RL**: rol de cada modelo de Astaroth, contratos, especificación por capa, fases revisadas y mapa de pendientes. |
 | [`migracion.md`](./migracion.md) | Plan de transición: arquitectura **actual vs objetivo**, brecha por capa y fases. |
 
 ## Resumen ejecutivo

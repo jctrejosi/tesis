@@ -10,8 +10,10 @@
     "esp32": "node dev.js --skip-db --skip-backend --skip-web --skip-plantservice",
     "esp32:monitor": "node dev.js --monitor-only --skip-db --skip-backend --skip-web --skip-plantservice",
     "esp32:sim": "node dev.js --esp-simulation --skip-db --skip-backend --skip-web --skip-plantservice",
-    "plant": "node dev.js --skip-db --skip-backend --skip-web --skip-esp32",
+    "plant": "node dev.js --skip-db --skip-backend --skip-web --skip-esp32 --skip-controlservice",
+    "control": "node dev.js --skip-db --skip-backend --skip-web --skip-esp32 --skip-plantservice",
     "dataset": "node scripts/build_dataset.js",
+    "excite": "node scripts/excite.js",
     "stop": "node dev.js --stop",
     "down": "node dev.js --down --skip-db --skip-backend --skip-web --skip-plantservice --skip-esp32"
   },

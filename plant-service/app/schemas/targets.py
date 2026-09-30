@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -171,6 +171,37 @@ class PhaseTargets(BaseModel):
 
     custom: dict[str, CustomTarget] = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _default_informational(cls, data: Any) -> Any:
+        """Marca como informativos los parámetros sin actuador en el hardware.
+
+        Solo rellena los flags ausentes (`setdefault`): si el payload trae
+        `controllable`/`informational_only` explícitos (recomendación de
+        DeepSeek, o hardware que sí los controla) se respetan tal cual.
+        """
+        if not isinstance(data, dict):
+            return data
+        patched = dict(data)
+        for key in INFORMATIONAL_KEYS:
+            value = patched.get(key)
+            if value is None:
+                continue
+            if isinstance(value, RangeTarget):
+                missing = {
+                    field: default
+                    for field, default in _INFORMATIONAL_DEFAULTS.items()
+                    if field not in value.model_fields_set
+                }
+                if missing:
+                    patched[key] = value.model_copy(update=missing)
+            elif isinstance(value, dict):
+                merged = dict(value)
+                for field, default in _INFORMATIONAL_DEFAULTS.items():
+                    merged.setdefault(field, default)
+                patched[key] = merged
+        return patched
+
     def validate_all_ranges(self) -> None:
         for field in (
             "temperature",
@@ -201,3 +232,20 @@ RANGE_KEYS = (
     "ph",
     "water_level",
 )
+
+# Parámetros que el hardware actual del ESP no garantiza controlar. Por defecto
+# son **informativos** (no accionables) sin importar por qué vía se creen: así el
+# contrato no depende de que DeepSeek los marque. Un payload puede forzar
+# `controllable`/`informational_only` explícitamente si su hardware los soporta.
+INFORMATIONAL_KEYS: tuple[str, ...] = (
+    "co2",
+    "substrate_temperature",
+    "ec",
+    "ph",
+    "water_level",
+)
+
+_INFORMATIONAL_DEFAULTS: dict[str, bool] = {
+    "controllable": False,
+    "informational_only": True,
+}

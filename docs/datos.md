@@ -59,6 +59,29 @@ Cada variable debe llevar metadatos: **unidad**, **ventana de normalización**
 > **Decisión cerrada (D2):** la **fuente única** de telemetría es el hypertable
 > `telemetry` del backend; la copia en `plant_service` queda como legado a retirar.
 
+### 1.3 Contexto temporal `d_t` (contrato — decidido)
+
+`d_t` son las **perturbaciones/contexto que varían en el tiempo** y que el modelo
+recibe junto a `x_t` y `u_t`. En el contrato de `causalTransformer-api` ocupan el
+papel de *vitals* (entradas variables en el tiempo que **no** son tratamientos).
+
+| Componente | Forma | Notas |
+|---|---|---|
+| Hora del día | `sin(h), cos(h)` | 2 valores (codificación cíclica) |
+| Día de la semana | `sin(dow), cos(dow)` | 2 valores |
+
+⇒ `dim_d = 4` (por defecto en `scripts/build_dataset.js`).
+
+**Qué NO es `d_t`**
+
+- La **fase** activa es *constante dentro de la ventana* → va en `static_features`
+  (contrato causalTransformer). `build_dataset` la emite por muestra en `phase`.
+- Los **setpoints** `x*` son la **referencia del coste del MPC**, no contexto del
+  modelo. `build_dataset` los emite por muestra en `x_target`.
+
+> **Decisión cerrada (D3):** `d_t` (hora/día) entra por el canal de *vitals*; la fase
+> entra por `static_features`.
+
 ## 2. Acciones `u_t`
 
 Las acciones son el estado de los 4 canales del relé. Espacio de acciones actual:
@@ -134,6 +157,15 @@ propia fase activa (idempotente: no duplica si nada cambió):
 un tope genérico pensado para porcentajes. Unidades reconocidas: `°C/°F`, `%`, `ppm/ppb`,
 `mS/cm`, `pH`, `hPa/kPa/Pa/bar`, `lux`, `PAR/PPFD`, `µmol/m²/s`, `DLI`, `s/min/h`, `L/L/h`.
 
+**Parámetros informativos por defecto (implementado ✅).** `co2`,
+`substrate_temperature`, `ec`, `ph` y `water_level` se marcan como
+`informational_only: true` / `controllable: false` **salvo que el payload traiga
+los flags explícitos**, sea cual sea la vía de creación (DeepSeek o `PATCH`
+manual). Son parámetros que el hardware actual del ESP no garantiza controlar, así
+que `compact_targets()` no los envía al dispositivo: el contrato ya no depende de
+que el modelo los etiquete. Si el hardware incorpora el actuador, basta con enviar
+`controllable: true, informational_only: false`.
+
 ## 4. Dataset de entrenamiento
 
 ### 4.1 Formato de muestras
@@ -145,14 +177,22 @@ El dataset es una colección de **ventanas**:
 |---|---|---|
 | `x_hist` | `[k, dim_x]` | estado en los `k` pasos previos |
 | `u_hist` | `[k, dim_u]` | acciones en los `k` pasos previos |
-| `d_hist` | `[k, dim_d]` | contexto (hora, fase) |
+| `d_hist` | `[k, dim_d]` | contexto temporal (hora + día, §1.3) |
 | `y_future` | `[H, dim_x]` | estados futuros a predecir |
+| `phase` | `str \| null` | fase activa en `t` → `static_features` |
+| `x_target` | objeto \| null | setpoints vigentes en `t` → referencia `x*` del MPC |
+| `simulated` | `bool \| null` | origen del dato (simulado/real) |
 
 - **Alineación temporal:** re-muestreo a una cadencia común (p. ej. 1 min), con
   *forward-fill* de acciones y agregación de sensores. La cadencia nativa es
   15–25 s por sensor (ver `readme.md` §10).
+- **Base del control:** `x_target` y `phase` se toman de
+  `plant_service.setpoint_snapshots` (la instantánea vigente en `t`), así que el
+  dataset respeta el histórico de objetivos.
 - **Splits:** temporales (train/val/test por bloques de tiempo), nunca aleatorios.
 - **Marcado de origen:** cada muestra indica si viene de datos **simulados o reales**.
+- **Excitación:** para que `u_t` tenga variación suficiente y la matriz de efecto `E`
+  (§`especificacion.md` §4.4) sea aprendible, se usa `scripts/excite.js`
 
 ### 4.2 Extracción (implementada ✅)
 

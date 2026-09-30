@@ -7,7 +7,13 @@ from pydantic import ValidationError
 
 from app.integrations.deepseek import extract_json, normalize_phases
 from app.schemas.recommendation import RecommendationResponse
-from app.schemas.targets import PhaseTargets, RangeTarget, unit_bounds
+from app.schemas.targets import (
+    INFORMATIONAL_KEYS,
+    PhaseTargets,
+    RangeTarget,
+    unit_bounds,
+)
+from app.services.device import compact_targets
 from tests.conftest import sample_recommendation
 
 
@@ -118,3 +124,76 @@ def test_unit_aliases_and_case_insensitivity() -> None:
     assert unit_bounds("%HR") == (0, 100)
     assert unit_bounds("µS/cm") == (0, 50000)
     assert unit_bounds("unidad-desconocida") is None
+
+
+# --- Default informativo para parámetros sin actuador ---------------------
+
+
+def test_deviceless_params_are_informational_by_default() -> None:
+    # Construido con instancias (como hace el conftest / recomendación).
+    targets = PhaseTargets(
+        co2=RangeTarget(min=400, target=900, max=1200, unit="ppm")
+    )
+    assert targets.co2 is not None
+    assert targets.co2.controllable is False
+    assert targets.co2.informational_only is True
+
+
+def test_deviceless_params_are_informational_from_dict() -> None:
+    # Mismo resultado por la vía de la API (PATCH manual)...
+    targets = PhaseTargets.model_validate(
+        {"co2": {"min": 400, "target": 900, "max": 1200, "unit": "ppm"}}
+    )
+    assert targets.co2 is not None
+    assert targets.co2.controllable is False
+    assert targets.co2.informational_only is True
+
+
+def test_all_deviceless_keys_get_defaults() -> None:
+    raw = {key: {"min": 0, "target": 1, "max": 2} for key in INFORMATIONAL_KEYS}
+    targets = PhaseTargets.model_validate(raw)
+    for key in INFORMATIONAL_KEYS:
+        target = getattr(targets, key)
+        assert target is not None, key
+        assert target.informational_only is True, key
+        assert target.controllable is False, key
+
+
+def test_explicit_controllable_is_respected() -> None:
+    # Hardware que sí controla CO2 puede forzar los flags.
+    targets = PhaseTargets.model_validate(
+        {
+            "co2": {
+                "min": 400,
+                "target": 900,
+                "max": 1200,
+                "unit": "ppm",
+                "controllable": True,
+                "informational_only": False,
+            }
+        }
+    )
+    assert targets.co2 is not None
+    assert targets.co2.controllable is True
+    assert targets.co2.informational_only is False
+
+
+def test_controllable_params_stay_controllable() -> None:
+    targets = PhaseTargets.model_validate(
+        {"temperature": {"min": 18, "target": 26, "max": 28, "unit": "°C"}}
+    )
+    assert targets.temperature is not None
+    assert targets.temperature.controllable is True
+    assert targets.temperature.informational_only is False
+
+
+def test_compact_targets_excludes_informational_and_keeps_controllable() -> None:
+    targets = PhaseTargets.model_validate(
+        {
+            "temperature": {"min": 18, "target": 26, "max": 28, "unit": "°C"},
+            "co2": {"min": 400, "target": 900, "max": 1200, "unit": "ppm"},
+        }
+    )
+    payload = compact_targets(targets)
+    assert "temperature" in payload
+    assert "co2" not in payload

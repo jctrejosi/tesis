@@ -8,10 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
+from app.core import database
 from app.core.config import Settings, get_settings
 from app.core.database import close_db, init_db
 from app.core.logging import setup_logging
 from app.integrations.deepseek import DeepSeekClient, DeepSeekError
+from app.services.actuators import seed_default_registry
 
 logger = logging.getLogger("plant-service")
 
@@ -21,6 +23,10 @@ async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
     setup_logging(settings.log_level)
     await init_db(settings)
+    # Siembra la convención de arranque del registro de actuadores (idempotente).
+    if database.session_factory is not None:
+        async with database.session_factory() as session:
+            await seed_default_registry(session)
     app.state.deepseek = DeepSeekClient(settings)
     logger.info("%s listo en http://%s:%s", settings.app_name, settings.host, settings.port)
     yield

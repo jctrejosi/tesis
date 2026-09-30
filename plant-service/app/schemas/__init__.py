@@ -1,3 +1,10 @@
+from app.schemas.actuator import (
+    ACTUATOR_FUNCTIONS,
+    ActuatorConfig,
+    ActuatorConfigSnapshotRead,
+    ActuatorConstraints,
+    ActuatorRegistryRead,
+)
 from app.schemas.crop import (
     CropCreate,
     CropDetail,
@@ -30,6 +37,11 @@ from app.schemas.targets import (
 )
 
 __all__ = [
+    "ACTUATOR_FUNCTIONS",
+    "ActuatorConfig",
+    "ActuatorConfigSnapshotRead",
+    "ActuatorConstraints",
+    "ActuatorRegistryRead",
     "CropCreate",
     "CropDetail",
     "CropRead",

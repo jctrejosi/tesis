@@ -70,7 +70,9 @@ sujeto a:  x_τ+1 = f(x_τ, u_τ, d_τ)          (world model)
 ```
 
 - `x*_τ` = **setpoint** de la fase activa (`plant-service`, ver `datos.md` §3).
-- Espacio de acciones **discreto**: 4 canales binarios.
+- Espacio de acciones **discreto**: `N` canales binarios **configurables** (el rol de
+  cada canal —luz, riego, ventilación…— vive en el **registro de actuadores**,
+  `especificacion.md` §4.3; el MPC se condiciona a esa configuración).
 
 | Parámetro | Valor inicial propuesto |
 |---|---|
@@ -92,13 +94,17 @@ Toda acción propuesta por el MPC pasa por aquí **antes** del hardware. Debe po
 
 | Regla | Descripción |
 |---|---|
-| Límites físicos | No accionar canales no existentes; respetar rangos de sensores |
+| Límites físicos | No accionar canales no existentes ni deshabilitados; respetar rangos de sensores |
 | `min_interval` de riego | Ya declarado en `plant-service` (`irrigation.min_interval_hours`); **aplicarlo aquí** |
 | Interlocks | p. ej. no activar riego sin condición mínima; no ventilación y humidificación simultáneas si aplica |
 | Rate limit | Máximo de conmutaciones por canal por unidad de tiempo (protege el relé) |
 | Duración máxima | Corte automático de un canal tras `duration_seconds` |
 | Watchdog | Si el control-service cae, dejar los actuadores en estado seguro |
 | Kill-switch | Comando manual que deshabilita el MPC |
+
+> Las constraints concretas (`min_interval`, `max_duration`, rate limit, cooldown) se
+toman del **registro de actuadores** por canal (`especificacion.md` §4.3), no están
+hardcodeadas por número de canal.
 
 ### 3.2 Contrato de decisión
 
