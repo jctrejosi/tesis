@@ -14,6 +14,7 @@ from app.models import CropPhase, Recommendation
 from app.schemas import PhaseApplyResult, RecommendRequest, RecommendResult
 from app.schemas.recommendation import RecommendationResponse
 from app.services.crops import CropService
+from app.services.setpoints import record_setpoint_snapshot
 
 
 def _norm_name(name: str) -> str:
@@ -118,6 +119,7 @@ class RecommendationService:
             )
 
         await self.session.commit()
+        await record_setpoint_snapshot(self.session)
 
         preserved_any = any(r.targets_preserved for r in results)
         return RecommendResult(

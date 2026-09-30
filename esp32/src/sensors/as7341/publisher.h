@@ -6,7 +6,7 @@ namespace as7341 {
 
     class Publisher {
     public:
-        static void publish(const AS7341Data& data);
+        static void publish(const AS7341Data& data, bool simulated = false);
         static void publish_config(const Config& cfg); 
     };
 

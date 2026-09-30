@@ -5,9 +5,13 @@
 #include <esp_timer.h>   // Para esp_timer_get_time()
 #include "message_queue.h"
 
-void publish_telemetry(const char* sensor_alias, const JsonObject& metrics, const char* timestamp) {
+void publish_telemetry(const char* sensor_alias, const JsonObject& metrics, const char* timestamp, bool simulated) {
     JsonDocument doc;
     doc["device_id"] = get_device_id();
+
+    // Marca si el dato proviene de simulación (sensor no detectado o modo sim),
+    // para poder excluirlo del entrenamiento del world model.
+    doc["simulated"] = simulated;
 
     // Si se proporciona un timestamp explícito se usa como cadena; si no, se
     // envía el reloj interno en microsegundos desde el arranque.

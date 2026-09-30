@@ -155,9 +155,13 @@ CREATE TABLE IF NOT EXISTS telemetry (
     value        DOUBLE PRECISION NOT NULL,
     unit         TEXT,
     quality      SMALLINT NOT NULL DEFAULT 100,
+    simulated    BOOLEAN,                    -- TRUE si el dato viene de simulación
     raw_payload  JSONB,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Marca de origen para volúmenes antiguos (idempotente).
+ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS simulated BOOLEAN;
 
 -- ================================================================
 -- dominio: configuraciones de actuadores
@@ -190,10 +194,17 @@ EXECUTE FUNCTION set_updated_at();
 -- convertir en hypertable
 SELECT create_hypertable('telemetry', 'time', if_not_exists => TRUE);
 
--- restricción UNIQUE para ON CONFLICT
-ALTER TABLE telemetry 
-    ADD CONSTRAINT uq_telemetry_sample_metric 
-    UNIQUE (time, sample_id, device_id, sensor_id, metric_name);
+-- restricción UNIQUE para ON CONFLICT (idempotente: se re-ejecuta init.sql sin error)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'uq_telemetry_sample_metric'
+    ) THEN
+        ALTER TABLE telemetry
+            ADD CONSTRAINT uq_telemetry_sample_metric
+            UNIQUE (time, sample_id, device_id, sensor_id, metric_name);
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_device_sensor_metric_time
     ON telemetry (device_id, sensor_id, metric_name, time DESC);
@@ -230,3 +241,34 @@ CREATE TRIGGER trg_sensor_configs_updated_at
 BEFORE UPDATE ON sensor_configs
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
+
+-- ================================================================
+-- acciones de control (u_t)
+-- Una fila por acción sobre un actuador. Serie canónica para el world model
+-- y el MPC. Registra acciones manuales, del controlador, confirmaciones del
+-- dispositivo y rechazos de la capa de seguridad.
+-- ================================================================
+
+CREATE TABLE IF NOT EXISTS control_actions (
+    time        TIMESTAMPTZ NOT NULL,
+    device_id   BIGINT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    channel     SMALLINT NOT NULL,       -- 1..4 para el relé
+    actuator    TEXT NOT NULL,           -- canal_1..canal_4
+    state       TEXT NOT NULL,           -- ON | OFF
+    source      TEXT NOT NULL,           -- manual | mpc | device | safety
+    simulated   BOOLEAN,                 -- TRUE si el dato viene de simulación
+    setpoint    JSONB,                   -- objetivo que motivó la acción
+    reason      TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+SELECT create_hypertable('control_actions', 'time', if_not_exists => TRUE);
+
+-- Marca de origen para volúmenes antiguos (idempotente).
+ALTER TABLE control_actions ADD COLUMN IF NOT EXISTS simulated BOOLEAN;
+
+CREATE INDEX IF NOT EXISTS idx_control_actions_device_time
+    ON control_actions (device_id, time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_control_actions_channel_time
+    ON control_actions (channel, time DESC);

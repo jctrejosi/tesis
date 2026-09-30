@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Crop, CropPhase
+from app.models import Crop, CropPhase, SetpointSnapshot
 
 
 async def list_crops(session: AsyncSession) -> list[Crop]:
@@ -51,3 +52,27 @@ async def next_phase_order(session: AsyncSession, crop_id: uuid.UUID) -> int:
     )
     orders = list(result.scalars().all())
     return (max(orders) + 1) if orders else 0
+
+
+# ── Setpoints (histórico de objetivos) ──────────────────────────────────────
+
+
+async def latest_setpoint(
+    session: AsyncSession, at: datetime | None = None
+) -> SetpointSnapshot | None:
+    """Instantánea vigente (la más reciente, o la activa en el instante `at`)."""
+    stmt = select(SetpointSnapshot)
+    if at is not None:
+        stmt = stmt.where(SetpointSnapshot.valid_from <= at)
+    stmt = stmt.order_by(SetpointSnapshot.valid_from.desc()).limit(1)
+    result = await session.execute(stmt)
+    return result.scalars().first()
+
+
+async def list_setpoints(
+    session: AsyncSession, limit: int = 50
+) -> list[SetpointSnapshot]:
+    result = await session.execute(
+        select(SetpointSnapshot).order_by(SetpointSnapshot.valid_from.desc()).limit(limit)
+    )
+    return list(result.scalars().all())

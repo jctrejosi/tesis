@@ -10,6 +10,7 @@ export interface TelemetryMessage {
   device_id: number;
   timestamp: string | number | null;
   metrics: Record<string, number>;
+  simulated?: boolean | null;
 }
 
 @Injectable()
@@ -22,7 +23,8 @@ export class TelemetryService {
   ) {}
 
   async ingest(sensorAlias: string, message: TelemetryMessage) {
-    const { device_id, timestamp, metrics } = message;
+    const { device_id, timestamp, metrics, simulated } = message;
+    const sim = simulated ?? null;
 
     // 1. Buscar el sensor
     const sensorId = await this.getSensorId(sensorAlias);
@@ -44,7 +46,7 @@ export class TelemetryService {
     const insertPromises = Object.entries(metrics).map(
       ([metricName, value]) => {
         return this.db.execute(sql`
-          INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value, raw_payload)
+          INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value, simulated, raw_payload)
           VALUES (
             ${realTime}::timestamptz,
             ${sampleId}::uuid,
@@ -52,6 +54,7 @@ export class TelemetryService {
             ${sensorId},
             ${metricName},
             ${value},
+            ${sim},
             ${rawPayload}::jsonb
           )
           ON CONFLICT (time, sample_id, device_id, sensor_id, metric_name) DO NOTHING
@@ -77,6 +80,7 @@ export class TelemetryService {
         sampleId,
         realTime,
         metrics,
+        sim,
       );
     } catch (err) {
       this.logger.error('Error al procesar datos derivados', err);

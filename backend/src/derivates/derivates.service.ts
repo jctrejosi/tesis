@@ -31,6 +31,7 @@ export class DerivatesService {
     sampleId: string,
     time: string,
     metrics: Record<string, number>,
+    simulated: boolean | null = null,
   ): Promise<void> {
     let derived: Record<string, number> = {};
 
@@ -77,8 +78,8 @@ export class DerivatesService {
 
     for (const [metricName, value] of entries) {
       await this.db.execute(sql`
-        INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value)
-        VALUES (${time}::timestamptz, ${sampleId}::uuid, ${deviceId}, ${sensorId}, ${metricName}, ${value})
+        INSERT INTO telemetry (time, sample_id, device_id, sensor_id, metric_name, value, simulated)
+        VALUES (${time}::timestamptz, ${sampleId}::uuid, ${deviceId}, ${sensorId}, ${metricName}, ${value}, ${simulated})
         ON CONFLICT (time, sample_id, device_id, sensor_id, metric_name) DO NOTHING
       `);
     }

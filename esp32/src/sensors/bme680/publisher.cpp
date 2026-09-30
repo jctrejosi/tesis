@@ -7,7 +7,7 @@
 
 namespace bme680 {
 
-    bool Publisher::publish(const BME680Data& data) {
+    bool Publisher::publish(const BME680Data& data, bool simulated) {
         JsonDocument doc;
         JsonObject metrics = doc.to<JsonObject>();
 
@@ -16,7 +16,7 @@ namespace bme680 {
         metrics["pressure"]      = data.pressure;
         metrics["gas_resistance"] = data.gas_resistance;
 
-        publish_telemetry("bme680", metrics);
+        publish_telemetry("bme680", metrics, nullptr, simulated);
 
         Serial.print("[BME680] published: ");
         serializeJson(doc, Serial);

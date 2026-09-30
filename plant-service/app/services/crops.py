@@ -9,6 +9,7 @@ from app import repositories
 from app.models import Crop, CropPhase
 from app.schemas import CropCreate, CropDetail, CropRead, CropUpdate, PhaseCreate, PhaseRead, PhaseUpdate
 from app.schemas.targets import PhaseTargets
+from app.services.setpoints import record_setpoint_snapshot
 
 
 def phase_to_read(phase: CropPhase) -> PhaseRead:
@@ -128,6 +129,7 @@ class CropService:
         self.session.add(phase)
         await self.session.commit()
         await self.session.refresh(phase)
+        await record_setpoint_snapshot(self.session)
         return phase
 
     async def update_phase(
@@ -162,6 +164,7 @@ class CropService:
 
         await self.session.commit()
         await self.session.refresh(phase)
+        await record_setpoint_snapshot(self.session)
         return phase
 
     async def delete_phase(self, crop_id: uuid.UUID, phase_id: uuid.UUID) -> None:
@@ -175,6 +178,7 @@ class CropService:
         if was_active and crop.active_phase_id == phase_id:
             crop.active_phase_id = None
         await self.session.commit()
+        await record_setpoint_snapshot(self.session)
 
     async def activate_phase(self, crop_id: uuid.UUID, phase_id: uuid.UUID) -> Crop:
         crop = await self.get(crop_id)
@@ -186,4 +190,5 @@ class CropService:
         crop.active_phase_id = phase.id
         await self.session.commit()
         await self.session.refresh(crop)
+        await record_setpoint_snapshot(self.session)
         return crop

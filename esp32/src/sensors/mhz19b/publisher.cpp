@@ -6,7 +6,7 @@
 
 namespace mhz19b {
 
-    void Publisher::publish(const MHZ19BData& data, const char* topic_suffix) {
+    void Publisher::publish(const MHZ19BData& data, const char* topic_suffix, bool simulated) {
         if (data.co2_ppm < 0) {
             Serial.println("[MHZ19B] dato inválido, no se publica");
             return;
@@ -16,7 +16,7 @@ namespace mhz19b {
         JsonObject metrics = doc.to<JsonObject>();
         metrics["co2"] = data.co2_ppm;
 
-        publish_telemetry(topic_suffix ? topic_suffix : "mhz19b", metrics);
+        publish_telemetry(topic_suffix ? topic_suffix : "mhz19b", metrics, nullptr, simulated);
 
         Serial.print("[MHZ19B] published: ");
         serializeJson(doc, Serial);

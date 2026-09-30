@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
+from app import repositories
 from app.api.deps import DeepSeekDep, SessionDep
 from app.core.config import Settings, get_settings
 from app.core.database import get_session
@@ -23,6 +25,7 @@ from app.schemas import (
     PhaseUpdate,
     RecommendRequest,
     RecommendResult,
+    SetpointSnapshotRead,
 )
 from app.services.crops import CropService, crop_to_read, phase_to_read
 from app.services.recommendations import RecommendationService
@@ -41,6 +44,31 @@ async def create_crop(payload: CropCreate, session: SessionDep) -> CropRead:
 async def list_crops(session: SessionDep) -> list[CropRead]:
     crops = await CropService(session).list()
     return [crop_to_read(c) for c in crops]
+
+
+# ─── Setpoints (histórico de objetivos) ────────────────────────────────────
+# Declaradas antes de /{crop_id} para que no las capture la ruta por UUID.
+
+@router.get(
+    "/setpoints",
+    response_model=SetpointSnapshotRead | None,
+    summary="Objetivos activos (instantánea vigente, o la vigente en `at`)",
+)
+async def current_setpoints(
+    session: SessionDep, at: datetime | None = None
+) -> SetpointSnapshotRead | None:
+    return await repositories.latest_setpoint(session, at)
+
+
+@router.get(
+    "/setpoints/history",
+    response_model=list[SetpointSnapshotRead],
+    summary="Histórico de instantáneas de objetivos",
+)
+async def setpoints_history(
+    session: SessionDep, limit: int = 50
+) -> list[SetpointSnapshotRead]:
+    return await repositories.list_setpoints(session, limit)
 
 
 @router.get("/{crop_id}", response_model=CropDetail, summary="Detalle del cultivo (con fases)")

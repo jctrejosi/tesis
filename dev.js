@@ -14,11 +14,11 @@
  * ESP32. Si `pio` no está instalado, el script levanta el resto del entorno
  * y avisa al final.
  *
- * Cuando todo está corriendo, dev.js termina y cierra la terminal: los
- * servicios quedan en segundo plano (propia sesión) escribiendo su salida en
- * ./logs/*.log, y se detienen con `node dev.js --stop`. Con --keep-terminal
- * (o un modo con monitor serial) la terminal queda abierta y Ctrl+C detiene
- * todo.
+ * Cuando todo está corriendo, dev.js termina y deja los servicios en segundo
+ * plano (propia sesión) escribiendo su salida en ./logs/*.log; la terminal NO
+ * se cierra. Se detienen con `node dev.js --stop`. Con un modo con monitor
+ * serial (o --keep-terminal) la terminal queda en primer plano y Ctrl+C detiene
+ * todo. Usa --close-terminal solo si de verdad quieres que se cierre al salir.
  *
  * Uso: node dev.js [opciones]   (o `npm run dev` en la raíz)
  * ===================================================================== */
@@ -37,13 +37,14 @@ const BACKEND_DIR = path.join(ROOT, 'backend');
 const WEB_DIR = path.join(ROOT, 'interfaz web');
 const PLANT_DIR = path.join(ROOT, 'plant-service');
 const ESP32_DIR = path.join(ROOT, 'esp32');
+const ESP_SIM_PATH = path.join(ROOT, 'tools', 'esp-sim.js');
 const LOG_DIR = path.join(ROOT, 'logs');
 const MONITOR_SPEED = 115200;
 
 /* Puertos por defecto de cada servicio. Se pueden sobrescribir con
  * --backend-port/--web-port/--plant-port o con las variables de entorno
- * BACKEND_PORT/WEB_PORT/PLANT_PORT. Si el puerto elegido ya está ocupado
- * (p. ej. por otro proyecto), dev.js busca el siguiente libre. */
+ * BACKEND_PORT/WEB_PORT/PLANT_PORT. Si el puerto elegido está ocupado, dev.js
+ * termina el proceso que lo ocupa y lo reutiliza (no cambia de puerto). */
 const DEFAULT_BACKEND_PORT = 3000;
 const DEFAULT_WEB_PORT = 5173;
 const DEFAULT_PLANT_PORT = 8000;
@@ -138,6 +139,24 @@ function findPio() {
   return candidates.find((c) => c && fs.existsSync(c)) || null;
 }
 
+// Puertos serie donde suele aparecer la placa. Devuelve [] si no hay ninguno
+// (Linux/macOS) o null si la detección no está soportada (p. ej. Windows).
+function findSerialPorts() {
+  if (process.platform === 'win32') return null;
+  const patterns =
+    process.platform === 'darwin'
+      ? [/^cu\.(usb|wch|SLAB|usbserial)/i]
+      : [/^ttyUSB\d+$/, /^ttyACM\d+$/];
+  try {
+    return fs
+      .readdirSync('/dev')
+      .filter((n) => patterns.some((re) => re.test(n)))
+      .map((n) => path.join('/dev', n));
+  } catch {
+    return [];
+  }
+}
+
 const VIRTUAL_IFACE = /^(docker|br-|veth|virbr|vmnet|tun|tap|tailscale|zt|wg|lo)/;
 
 // IPv4 de la LAN real (ignora bridges de docker y otras interfaces virtuales).
@@ -216,6 +235,7 @@ Uso:
   node dev.js --monitor           Sube el firmware y abre el monitor serial
   node dev.js --monitor-only      Solo abre el monitor serial del ESP32
   node dev.js --build-only        Compila el firmware ESP32 sin subirlo
+  node dev.js --esp-simulation    Levanta todo con un ESP simulado (sin placa)
   node dev.js --stop              Detiene los servicios en segundo plano (logs/*.pid)
   node dev.js --down              Apaga también los contenedores docker
 
@@ -224,11 +244,15 @@ Notas:
   servicios siguen vivos en segundo plano escribiendo sus logs en logs/
   (backend.log, web.log, db.log, mqtt.log, …). Para detenerlos después:
   node dev.js --stop  (y \`npm run down\` para los contenedores docker).
-  --keep-terminal (o un modo con monitor serial) deja la terminal abierta,
-  donde Ctrl+C detiene todo.
+  Al terminar, la terminal NO se cierra: los servicios quedan en segundo plano
+  y el prompt sigue disponible. Con un modo con monitor serial (o --keep-terminal)
+  la terminal queda en primer plano, donde Ctrl+C detiene todo.
+  Si no hay placa conectada (o falta pio), el ESP32 se levanta simulado; también
+  puedes forzarlo con --esp-simulation.
 
 Opciones:
   --skip-db, --skip-backend, --skip-web, --skip-plantservice, --skip-esp32   Omite un componente
+  --esp-simulation       ESP simulado por MQTT (sin placa ni PlatformIO)
   --env <nombre>         Entorno de PlatformIO (por defecto: esp32dev)
   --upload-port <p>      Puerto serie para subir el firmware (ej. /dev/ttyUSB0)
   --monitor-port <p>     Puerto serie para el monitor serial
@@ -236,12 +260,13 @@ Opciones:
   --backend-port <p>     Puerto del backend NestJS (por defecto: 3000)
   --web-port <p>         Puerto de la interfaz web Vite (por defecto: 5173)
   --plant-port <p>       Puerto de plant-service (por defecto: 8000)
-                         Si están ocupados, se busca el siguiente libre.
+                         Si un puerto está ocupado, se termina el proceso que lo usa.
   --watch                Backend en modo watch (por defecto)
   --prod                 Backend compilado (yarn build + node dist/main)
   --install              Fuerza la instalación de dependencias aunque no falten
   --skip-install         Omite la instalación (por defecto instala solo si faltan)
-  --keep-terminal        Mantiene la terminal abierta (Ctrl+C detiene los servicios)
+  --keep-terminal        Mantiene la terminal en primer plano (Ctrl+C detiene los servicios)
+  --close-terminal       Cierra la terminal al salir (por defecto NO se cierra)
   -h, --help             Muestra esta ayuda
 `;
 
@@ -251,6 +276,7 @@ const opts = {
   skipWeb: false,
   skipPlantservice: false,
   skipEsp32: false,
+  espSimulation: false,
   buildOnly: false,
   monitor: false,
   monitorOnly: false,
@@ -266,7 +292,8 @@ const opts = {
   skipInstall: false,
   down: false,
   stop: false,
-  closeTerminal: true,
+  closeTerminal: false,
+  keepTerminal: false,
 };
 
 function parseArgs(argv) {
@@ -299,6 +326,10 @@ function parseArgs(argv) {
       case '--skip-esp32':
       case '--no-esp32':
         opts.skipEsp32 = true;
+        break;
+      case '--esp-simulation':
+      case '--sim':
+        opts.espSimulation = true;
         break;
       case '--build-only':
         opts.buildOnly = true;
@@ -348,8 +379,11 @@ function parseArgs(argv) {
       case '--stop':
         opts.stop = true;
         break;
+      case '--close-terminal':
+        opts.closeTerminal = true;
+        break;
       case '--keep-terminal':
-        opts.closeTerminal = false;
+        opts.keepTerminal = true;
         break;
       default:
         log('dev', paint('yellow', `Opción desconocida: ${a} (usa --help)`));
@@ -496,20 +530,81 @@ function portFree(port) {
   });
 }
 
-// Devuelve `preferred` si está libre; si no, el siguiente puerto disponible.
-async function resolvePort(preferred, label) {
-  for (let port = preferred; port < preferred + 50; port++) {
-    // eslint-disable-next-line no-await-in-loop
-    if (await portFree(port)) {
-      if (port !== preferred) {
-        log('dev', paint('yellow', `${label}: puerto ${preferred} ocupado, usando ${port}`));
+// Línea de comandos (cmdline) de un proceso; útil para saber a quién matamos.
+function procCmdline(pid) {
+  try {
+    return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').trim();
+  } catch {
+    const r = spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000 });
+    return (r.stdout || '').toString().trim();
+  }
+}
+
+// PIDs que están escuchando en `port` (Linux: ss; fallback: lsof).
+function pidsOnPort(port) {
+  const ss = which('ss');
+  if (ss) {
+    const r = spawnSync(ss, ['-ltnpH', `sport = :${port}`], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000 });
+    const pids = new Set();
+    for (const m of (r.stdout || '').toString().matchAll(/pid=(\d+)/g)) pids.add(Number(m[1]));
+    return [...pids];
+  }
+  const lsof = which('lsof');
+  if (lsof) {
+    const r = spawnSync(lsof, ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000 });
+    return (r.stdout || '').toString().split(/\s+/).filter(Boolean).map(Number);
+  }
+  return [];
+}
+
+// Libera `port`: si está ocupado, termina el proceso que lo ocupa y lo reutiliza.
+async function ensurePortFree(port, label) {
+  if (await portFree(port)) return port;
+
+  // 1) Limpia primero restos del propio proyecto (cubre hijos tipo nest/vite).
+  const swept = killProjectProcesses('SIGTERM');
+  if (swept.length) {
+    log('dev', paint('yellow', `${label}: puerto ${port} ocupado; termino ${swept.length} proceso(s) del proyecto`));
+    await sleep(1000);
+    killProjectProcesses('SIGKILL');
+  }
+  if (await portFree(port)) return port;
+
+  // 2) Si sigue ocupado, termina a quien lo tenga.
+  const pids = pidsOnPort(port);
+  if (!pids.length) {
+    log('dev', paint('red', `${label}: el puerto ${port} está ocupado y no se pudo identificar el proceso.`));
+  } else {
+    for (const pid of pids) {
+      log('dev', paint('yellow', `${label}: puerto ${port} ocupado por pid ${pid} (${procCmdline(pid) || 'desconocido'}); lo termino.`));
+      try {
+        if (process.platform !== 'win32') process.kill(-pid, 'SIGTERM');
+        else process.kill(pid, 'SIGTERM');
+      } catch {
+        try {
+          process.kill(pid, 'SIGTERM');
+        } catch {
+          /* ya terminó */
+        }
       }
-      return port;
+    }
+    await sleep(1200);
+    for (const pid of pids) {
+      try {
+        if (process.platform !== 'win32') process.kill(-pid, 'SIGKILL');
+        else process.kill(pid, 'SIGKILL');
+      } catch {
+        /* ya terminó */
+      }
     }
   }
-  log('dev', paint('red', `No hay puertos libres cerca de ${preferred} para ${label}.`));
-  process.exit(1);
-  return preferred; // nunca se alcanza
+
+  const freed = await waitFor(label, () => portFree(port), 10000);
+  if (!freed) {
+    log('dev', paint('red', `${label}: no se pudo liberar el puerto ${port}.`));
+    process.exit(1);
+  }
+  return port;
 }
 
 async function httpOk(url) {
@@ -648,6 +743,17 @@ function startMonitor() {
   return child;
 }
 
+// Dispositivo ESP32 simulado: publica telemetría y responde comandos por MQTT.
+function startEspSimulation() {
+  const env = {
+    MQTT_BROKER_URL: process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883',
+    MQTT_CLIENT_ID: process.env.SIM_CLIENT_ID || process.env.MQTT_CLIENT_ID || 'ESP32GrowBox',
+    DEVICE_ID: process.env.DEVICE_ID || '1',
+  };
+  startService('esp-sim', process.execPath, [ESP_SIM_PATH], ROOT, { env });
+  log('esp32', paint('green', 'ESP simulado arrancado (publica telemetría y responde comandos por MQTT).'));
+}
+
 function printSummary(webUrl) {
   console.log('');
   console.log(paint('green', '================================================='));
@@ -665,12 +771,15 @@ function printSummary(webUrl) {
     console.log(`  plant-service ->  http://localhost:${PORTS.plant}  (docs: http://localhost:${PORTS.plant}/docs)`);
   }
   if (!opts.skipEsp32) {
-    console.log(
-      `  ESP32         ->  ${opts.monitorOnly ? 'monitor serial abierto' : 'firmware compilado' + (opts.buildOnly ? ' (sin subir)' : ' y subido')}`,
-    );
+    const espText = opts.espSimulation
+      ? 'simulado (MQTT, sin hardware)'
+      : opts.monitorOnly
+        ? 'monitor serial abierto'
+        : 'firmware compilado' + (opts.buildOnly ? ' (sin subir)' : ' y subido');
+    console.log(`  ESP32         ->  ${espText}`);
   }
   console.log('');
-  const keepOpen = opts.monitor || opts.monitorOnly || !opts.closeTerminal;
+  const keepOpen = opts.monitor || opts.monitorOnly || opts.keepTerminal;
   console.log(
     paint(
       'dim',
@@ -735,10 +844,33 @@ function scheduleTerminalClose() {
     env: { ...process.env, DEV_TERM_CLOSE_PID: String(target) },
   });
   child.unref();
-  log('dev', paint('dim', `la terminal se cerrará al salir (pid ${target}; usa --keep-terminal para evitarlo)`));
+  log('dev', paint('dim', `la terminal se cerrará al salir (pid ${target})`));
 }
 
 /* ----------------------------- apagado ------------------------------ */
+
+// Servicios de una corrida anterior que siguen vivos (según logs/*.pid).
+function runningPidFiles() {
+  const alive = [];
+  if (!fs.existsSync(LOG_DIR)) return alive;
+  for (const f of fs.readdirSync(LOG_DIR)) {
+    if (!f.endsWith('.pid')) continue;
+    let pid;
+    try {
+      pid = Number.parseInt(fs.readFileSync(path.join(LOG_DIR, f), 'utf8'), 10);
+    } catch {
+      continue;
+    }
+    if (!Number.isInteger(pid) || pid <= 1) continue;
+    try {
+      process.kill(pid, 0); // señal 0: comprueba si el proceso existe
+      alive.push({ name: f.slice(0, -4), pid });
+    } catch {
+      /* ya no existe */
+    }
+  }
+  return alive;
+}
 
 function cleanupPidFiles() {
   if (!fs.existsSync(LOG_DIR)) return;
@@ -753,44 +885,109 @@ function cleanupPidFiles() {
   }
 }
 
+// PIDs de la cadena de ancestros del proceso actual (para no matarnos a
+// nosotros mismos ni a la shell que lanzó el comando).
+function ancestorPids() {
+  const pids = new Set();
+  let pid = process.pid;
+  for (let depth = 0; pid && pid > 1 && depth < 32; depth++) {
+    pids.add(pid);
+    pid = procParent(pid);
+  }
+  return pids;
+}
+
+// Firmas de los procesos-servicio del proyecto (evita matar, p. ej., los
+// servidores de lenguaje del editor, que comparten el cwd del proyecto).
+const SERVICE_SIG = /(node_modules\/\.bin\/nest|node_modules\/\.bin\/vite|\bnest start\b|uvicorn app\.main:app|tools\/esp-sim\.js|dist\/src\/main|docker logs -f cea-)/;
+
+// Mata procesos cuyo directorio de trabajo esté dentro del proyecto. Cubre
+// huérfanos de corridas anteriores cuyos .pid ya se sobrescribieron
+// (npm→nest→node, vite, uvicorn, esp-sim, docker logs -f). Solo Linux (/proc).
+function killProjectProcesses(signal = 'SIGTERM') {
+  if (process.platform !== 'linux') return [];
+  const keep = ancestorPids();
+  const killed = [];
+  let entries;
+  try {
+    entries = fs.readdirSync('/proc');
+  } catch {
+    return killed;
+  }
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    if (keep.has(pid)) continue;
+    let cwd;
+    try {
+      cwd = fs.readlinkSync(`/proc/${entry}/cwd`);
+    } catch {
+      continue; // sin permiso para leer el cwd o ya terminó
+    }
+    if (cwd !== ROOT && !cwd.startsWith(ROOT + path.sep)) continue;
+    let cmdline = '';
+    try {
+      cmdline = fs.readFileSync(`/proc/${entry}/cmdline`, 'utf8').replace(/\0/g, ' ').trim();
+    } catch {
+      continue;
+    }
+    if (!SERVICE_SIG.test(cmdline)) continue; // no es un servicio nuestro
+    try {
+      process.kill(pid, signal);
+      killed.push(pid);
+    } catch {
+      /* ya terminó */
+    }
+  }
+  return killed;
+}
+
 // Detiene los servicios que una corrida anterior dejó en segundo plano.
 async function stopBackgroundServices() {
-  if (!fs.existsSync(LOG_DIR)) return;
   const signaled = [];
-  for (const f of fs.readdirSync(LOG_DIR)) {
-    if (!f.endsWith('.pid')) continue;
-    const name = f.slice(0, -4);
-    try {
-      const pid = Number.parseInt(fs.readFileSync(path.join(LOG_DIR, f), 'utf8'), 10);
-      if (!Number.isInteger(pid) || pid <= 1) continue;
-      // Termina el grupo del proceso (cubre hijos anidados tipo nest/vite).
-      if (process.platform !== 'win32') {
-        try {
-          process.kill(-pid, 'SIGTERM');
-        } catch {
+  if (fs.existsSync(LOG_DIR)) {
+    for (const f of fs.readdirSync(LOG_DIR)) {
+      if (!f.endsWith('.pid')) continue;
+      const name = f.slice(0, -4);
+      try {
+        const pid = Number.parseInt(fs.readFileSync(path.join(LOG_DIR, f), 'utf8'), 10);
+        if (!Number.isInteger(pid) || pid <= 1) continue;
+        // Termina el grupo del proceso (cubre hijos anidados tipo nest/vite).
+        if (process.platform !== 'win32') {
+          try {
+            process.kill(-pid, 'SIGTERM');
+          } catch {
+            try {
+              process.kill(pid, 'SIGTERM');
+            } catch {
+              continue; // ya terminó
+            }
+          }
+        } else {
           try {
             process.kill(pid, 'SIGTERM');
           } catch {
             continue; // ya terminó
           }
         }
-      } else {
-        try {
-          process.kill(pid, 'SIGTERM');
-        } catch {
-          continue; // ya terminó
-        }
+        signaled.push({ name, pid });
+        log('dev', `detenido ${name} (pid ${pid})`);
+      } catch {
+        /* pid ilegible */
       }
-      signaled.push({ name, pid });
-      log('dev', `detenido ${name} (pid ${pid})`);
-    } catch {
-      /* pid ilegible */
     }
   }
-  if (!signaled.length) {
-    log('dev', 'no hay servicios en segundo plano (logs/*.pid)');
+
+  // Barrido por cwd: elimina huérfanos que no quedaron en logs/*.pid.
+  const swept = killProjectProcesses('SIGTERM');
+  if (swept.length) log('dev', `detenidos ${swept.length} proceso(s) huérfano(s) del proyecto`);
+
+  if (!signaled.length && !swept.length) {
+    log('dev', 'no hay servicios en segundo plano');
+    cleanupPidFiles();
     return;
   }
+
   await sleep(1500);
   for (const { name, pid } of signaled) {
     try {
@@ -805,6 +1002,8 @@ async function stopBackgroundServices() {
       /* ya no existe */
     }
   }
+  killProjectProcesses('SIGKILL');
+  cleanupPidFiles();
 }
 
 async function shutdown(code) {
@@ -838,6 +1037,14 @@ async function main() {
   if (opts.stop) {
     await stopBackgroundServices();
     process.exit(0);
+  }
+
+  // 0b. Si quedó un entorno anterior corriendo, se detiene para reutilizar los
+  // puertos (nunca se levantan dos stacks en paralelo).
+  const alreadyRunning = runningPidFiles();
+  if (alreadyRunning.length) {
+    log('dev', paint('yellow', `hay un entorno corriendo (${alreadyRunning.map((s) => s.name).join(', ')}): lo detengo para reutilizar los puertos.`));
+    await stopBackgroundServices();
   }
 
   const parts = [];
@@ -881,21 +1088,33 @@ async function main() {
       process.exit(1);
     }
   }
+  // ESP32: decide entre placa real (PlatformIO) y dispositivo simulado.
   PIO_BIN = null;
-  if (!opts.skipEsp32) {
+  if (!opts.skipEsp32 && !opts.espSimulation) {
     PIO_BIN = findPio();
     if (!PIO_BIN) {
-      log('esp32', paint('yellow', 'PlatformIO (pio) no encontrado: se omite el ESP32.'));
-      log('esp32', paint('dim', '  Instálalo con:  pip install -U platformio'));
-      log('esp32', paint('dim', '  o usa la extensión "PlatformIO IDE" de VS Code y vuelve a intentarlo.'));
-      opts.skipEsp32 = true;
+      log('esp32', paint('yellow', 'PlatformIO (pio) no encontrado: se usará el ESP simulado.'));
+      log('esp32', paint('dim', '  Para hardware real: pip install -U platformio'));
+      opts.espSimulation = true;
+    }
+
+    if (!opts.espSimulation) {
+      const ports = findSerialPorts(); // null si no se puede detectar (p. ej. Windows)
+      const port = opts.uploadPort || (ports && ports[0]) || null;
+      if (port) {
+        opts.uploadPort = port;
+      } else if (ports && ports.length === 0) {
+        log('esp32', paint('yellow', 'no hay placa conectada (ningún puerto serie): se usará el ESP simulado.'));
+        opts.espSimulation = true;
+      }
+      // si ports === null (detección no soportada) se deja que pio autodetecte
     }
   }
 
-  // 1. Puertos libres (evita chocar con otros proyectos que ya usan 3000/8000).
-  if (!opts.skipBackend) PORTS.backend = await resolvePort(opts.backendPort, 'backend');
-  if (!opts.skipWeb) PORTS.web = await resolvePort(opts.webPort, 'web');
-  if (!opts.skipPlantservice) PORTS.plant = await resolvePort(opts.plantPort, 'plant-service');
+  // 1. Asegura los puertos: si están ocupados, termina a quien los tenga.
+  if (!opts.skipBackend) PORTS.backend = await ensurePortFree(opts.backendPort, 'backend');
+  if (!opts.skipWeb) PORTS.web = await ensurePortFree(opts.webPort, 'web');
+  if (!opts.skipPlantservice) PORTS.plant = await ensurePortFree(opts.plantPort, 'plant-service');
 
   // 2. .env del backend (no pisa uno existente).
   if (!opts.skipBackend) ensureBackendEnv();
@@ -974,8 +1193,14 @@ async function main() {
 
   // 5. Interfaz web (Vite).
   if (!opts.skipWeb) {
+    const webEnv = { WEB_PORT: String(PORTS.web) };
+    // La web llama al backend por URL absoluta (VITE_BACKEND_URL). Si el backend
+    // no está en 3000 (p. ej. el puerto está ocupado), hay que apuntarla al real.
+    if (!opts.skipBackend) {
+      webEnv.VITE_BACKEND_URL = `http://localhost:${PORTS.backend}`;
+    }
     startService('web', webRunner.bin, scriptArgs(webRunner, 'dev'), WEB_DIR, {
-      env: { WEB_PORT: String(PORTS.web) },
+      env: webEnv,
     });
     webUrl = await waitForWeb();
   }
@@ -1017,47 +1242,55 @@ async function main() {
     }
   }
 
-  // 7. ESP32 (PlatformIO): build → upload → monitor opcional.
+  // 7. ESP32: placa real (build → upload → monitor) o dispositivo simulado.
   if (!opts.skipEsp32) {
-    esp32BrokerHint();
-    if (opts.monitorOnly) {
-      startMonitor();
+    if (opts.espSimulation) {
+      if (opts.monitorOnly || opts.monitor) {
+        log('esp32', paint('dim', 'modo simulación: se ignora el monitor serial.'));
+      }
+      startEspSimulation();
     } else {
-      const built = await runOnce('esp32', PIO_BIN, ['run', '-e', opts.env], ESP32_DIR, 'yellow');
-      if (built !== 0) {
-        log('esp32', paint('red', 'La compilación del firmware falló.'));
-      } else if (!opts.buildOnly) {
-        const uploadArgs = ['run', '-e', opts.env, '-t', 'upload'];
-        if (opts.uploadPort) uploadArgs.push('--upload-port', opts.uploadPort);
-        const uploaded = await runOnce('esp32', PIO_BIN, uploadArgs, ESP32_DIR, 'yellow');
-        if (uploaded !== 0) {
-          log('esp32', paint('red', 'La subida falló. Revisa la conexión USB y el puerto (--upload-port).'));
-        } else if (opts.monitor) {
-          startMonitor();
-        } else {
-          log('esp32', paint('dim', 'Usa --monitor para ver la salida serial del ESP32.'));
-        }
+      esp32BrokerHint();
+      if (opts.monitorOnly) {
+        startMonitor();
       } else {
-        log('esp32', 'Firmware compilado (--build-only, sin subir).');
+        const built = await runOnce('esp32', PIO_BIN, ['run', '-e', opts.env], ESP32_DIR, 'yellow');
+        if (built !== 0) {
+          log('esp32', paint('red', 'La compilación del firmware falló.'));
+        } else if (!opts.buildOnly) {
+          const uploadArgs = ['run', '-e', opts.env, '-t', 'upload'];
+          if (opts.uploadPort) uploadArgs.push('--upload-port', opts.uploadPort);
+          const uploaded = await runOnce('esp32', PIO_BIN, uploadArgs, ESP32_DIR, 'yellow');
+          if (uploaded !== 0) {
+            log('esp32', paint('red', 'La subida falló. Revisa la conexión USB y el puerto (--upload-port).'));
+          } else if (opts.monitor) {
+            startMonitor();
+          } else {
+            log('esp32', paint('dim', 'Usa --monitor para ver la salida serial del ESP32.'));
+          }
+        } else {
+          log('esp32', 'Firmware compilado (--build-only, sin subir).');
+        }
       }
     }
   }
 
   printSummary(webUrl);
 
-  // ¿Hay que dejar la terminal abierta? (monitor serial o --keep-terminal).
-  const keepOpen = opts.monitor || opts.monitorOnly || !opts.closeTerminal;
+  // ¿Hay que dejar el proceso en primer plano? (monitor serial o --keep-terminal).
+  const keepOpen = opts.monitor || opts.monitorOnly || opts.keepTerminal;
   if (keepOpen) {
     log('dev', paint('dim', 'Servicios arriba. Ctrl+C para detenerlos (logs en logs/).'));
     setInterval(() => {}, 2147483647); // mantiene vivo el proceso hasta Ctrl+C
     return;
   }
 
-  // Todo corriendo: dev.js termina y cierra la terminal. Los servicios ya
-  // corren en su propia sesión con salida a logs/*.log, así que sobreviven.
+  // Todo corriendo: dev.js termina y deja los servicios en segundo plano.
+  // Los servicios corren en su propia sesión con salida a logs/*.log, así que
+  // sobreviven sin necesidad de cerrar la terminal.
   await sleep(800); // deja que la salida final se vacíe
-  log('dev', paint('green', 'Entorno corriendo en segundo plano. Cerrando la terminal…'));
-  if (process.stdin.isTTY) scheduleTerminalClose();
+  log('dev', paint('green', 'Entorno corriendo en segundo plano (la terminal queda abierta).'));
+  if (opts.closeTerminal && process.stdin.isTTY) scheduleTerminalClose();
   process.exit(0);
 }
 

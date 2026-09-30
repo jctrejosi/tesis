@@ -7,7 +7,7 @@
 
 namespace soil_ec_rs485 {
 
-    void Publisher::publish(const SoilECData& data) {
+    void Publisher::publish(const SoilECData& data, bool simulated) {
         if (isnan(data.ec_raw)) {
             Serial.println("[SOIL_EC_RS485] EC inválido, no se publica");
             return;
@@ -22,7 +22,7 @@ namespace soil_ec_rs485 {
             metrics["temperature"] = nullptr;
         }
 
-        publish_telemetry("soil_ec", metrics);
+        publish_telemetry("soil_ec", metrics, nullptr, simulated);
 
         Serial.print("[SOIL_EC_RS485] published: ");
         serializeJson(doc, Serial);

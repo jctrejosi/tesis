@@ -158,7 +158,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       if (parts.length >= 4 && parts[1] === 'relay' && parts[3] === 'state') {
         const channel = parseInt(parts[2], 10);
         const state = message.state as string;
-        void this.updateRelayState(channel, state);
+        const simulated = (message.simulated as boolean | undefined) ?? null;
+        void this.updateRelayState(channel, state, simulated);
         return;
       }
 
@@ -256,14 +257,18 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async updateRelayState(channel: number, state: string) {
+  private async updateRelayState(channel: number, state: string, simulated: boolean | null = null) {
     if (channel < 1 || channel > 4) {
       this.logger.warn(`Canal de relé inválido: ${channel}`);
       return;
     }
 
-    const actuator = await this.db.execute<{ id: number; state: unknown }>(sql`
-    SELECT id, state FROM actuators
+    const actuator = await this.db.execute<{
+      id: number;
+      state: unknown;
+      device_id: number;
+    }>(sql`
+    SELECT id, state, device_id FROM actuators
     WHERE name = ${`canal_${channel}`} AND type = 'relay' LIMIT 1
   `);
 
@@ -292,6 +297,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       'mqtt_state_update'
     )
   `);
+
+    // u_t: confirmación del dispositivo (estado realmente aplicado).
+    await this.db.execute(sql`
+      INSERT INTO control_actions (time, device_id, channel, actuator, state, source, simulated, reason)
+      VALUES (now(), ${actuator.rows[0].device_id}, ${channel}, ${`canal_${channel}`}, ${state}, 'device', ${simulated}, 'mqtt_state_update')
+    `);
 
     this.logger.log(
       `Relé canal ${channel} (canal_${channel}) actualizado a ${state}`,

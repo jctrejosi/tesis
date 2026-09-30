@@ -6,6 +6,9 @@ aceptación verificables.
 
 > **Principio rector:** cerrar el lazo con un baseline barato antes de invertir en
 > modelos neuronales. Ver `README.md`.
+>
+> Para la vista **actual → objetivo** y la brecha por capa, ver
+> [`migracion.md`](./migracion.md).
 
 ```mermaid
 flowchart LR
@@ -31,6 +34,8 @@ flowchart LR
 - Se puede reconstruir la secuencia `(x_t, u_t, x_{t+1})` para un rango de tiempo.
 - `build_dataset` produce tensores con forma `[N, k, dim]` y split temporal.
 - Cada muestra indica si proviene de datos simulados.
+
+**Estado:** ✅ tabla `control_actions` (hypertable) · ✅ registro de acciones manuales y de dispositivo desde el backend · ✅ marca `simulated` (firmware + simulador + backend + dataset) · ✅ contrato `x_t` v1 (D7) y fuente única (D2) · ✅ setpoints históricos (`plant_service.setpoint_snapshots`) · ✅ `scripts/build_dataset.js`.
 
 **Depende de:** nada. **Desbloquea:** Fase 1.
 

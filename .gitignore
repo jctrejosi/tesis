@@ -3,3 +3,6 @@ node_modules/
 
 # Logs generados por dev.js
 logs/
+
+# Datasets generados
+files/*.ndjson

@@ -6,7 +6,7 @@
 
 namespace as7341 {
 
-    void Publisher::publish(const AS7341Data& data) {
+    void Publisher::publish(const AS7341Data& data, bool simulated) {
         JsonDocument doc;
         JsonObject metrics = doc.to<JsonObject>();
 
@@ -25,7 +25,7 @@ namespace as7341 {
         serializeJson(doc, Serial);
         Serial.println();
 
-        publish_telemetry("as7341", metrics);
+        publish_telemetry("as7341", metrics, nullptr, simulated);
     }
 
     void Publisher::publish_config(const Config& cfg) {

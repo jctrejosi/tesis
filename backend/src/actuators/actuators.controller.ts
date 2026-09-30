@@ -66,14 +66,16 @@ export class ActuatorsController {
       type: string;
       state: Record<string, unknown> | null;
       id: number;
+      device_id: number;
     }>(sql`
-      SELECT id, type, state FROM actuators WHERE name = ${name} LIMIT 1
+      SELECT id, type, state, device_id FROM actuators WHERE name = ${name} LIMIT 1
     `);
     if (!actuator.rows.length) {
       return { error: 'Actuador no encontrado' };
     }
     const actuatorType = actuator.rows[0].type;
     const actuatorId = actuator.rows[0].id;
+    const actuatorDeviceId = actuator.rows[0].device_id;
     const currentState: Record<string, unknown> = actuator.rows[0].state ?? {};
 
     // 2. Validación especial para relay
@@ -133,6 +135,14 @@ export class ActuatorsController {
         UPDATE actuators SET state = ${JSON.stringify(newState)}::jsonb
         WHERE id = ${actuatorId}
       `);
+
+      // u_t: registrar la acción de control (serie canónica para el world model).
+      if (actuatorType === 'relay' && typeof payload.channel === 'number') {
+        await this.db.execute(sql`
+          INSERT INTO control_actions (time, device_id, channel, actuator, state, source, reason)
+          VALUES (now(), ${actuatorDeviceId}, ${payload.channel}, ${name}, ${String(payload.state)}, 'manual', 'api:set')
+        `);
+      }
 
       return {
         status: 'ok',

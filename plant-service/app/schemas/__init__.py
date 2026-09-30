@@ -20,6 +20,7 @@ from app.schemas.recommendation import (
     PhaseRecommendation,
     RecommendationResponse,
 )
+from app.schemas.setpoint import SetpointSnapshotRead
 from app.schemas.targets import (
     CustomTarget,
     IrrigationTarget,
@@ -49,5 +50,6 @@ __all__ = [
     "RecommendResult",
     "RecommendationResponse",
     "ScheduleTarget",
+    "SetpointSnapshotRead",
     "TelemetryIn",
 ]

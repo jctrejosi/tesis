@@ -17,6 +17,7 @@ apoyándose en la plataforma de predicción **Astaroth** para el *world model*.
 | [`control.md`](./control.md) | Capas 4–7: world model (Astaroth), MPC, safety y actuación. |
 | [`observabilidad-aprendizaje.md`](./observabilidad-aprendizaje.md) | Capas 8–9: métricas, trazas de decisión y reentrenamiento. |
 | [`roadmap.md`](./roadmap.md) | Fases de implementación con entregables y criterios de aceptación. |
+| [`migracion.md`](./migracion.md) | Plan de transición: arquitectura **actual vs objetivo**, brecha por capa y fases. |
 
 ## Resumen ejecutivo
 
@@ -46,7 +47,7 @@ flowchart TD
 | # | Capa | Estado | Resumen |
 |---|---|---|---|
 | 1 | Hardware / adquisición | ✅ | ESP32: BME680, AS7341, MH-Z19B, Soil EC + relé de 4 canales |
-| 2 | Data platform | 🟡 | Telemetría en TimescaleDB vía MQTT; acciones no son serie temporal unificada |
+| 2 | Data platform | 🟡 | Telemetría en TimescaleDB vía MQTT; acciones ya en `control_actions` (falta setpoints históricos y fuente única) |
 | 3 | State estimator | 🟡 | Métricas derivadas deterministas; falta el vector `x_t` |
 | 4 | World / dynamics model | ❌ | No existe. Candidatos en Astaroth (`transformerApi`, `causalTransformer-api`) |
 | 5 | MPC | ❌ | No existe |

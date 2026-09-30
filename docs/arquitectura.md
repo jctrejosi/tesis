@@ -74,6 +74,22 @@ Mapeo de canales del relé (ver `readme.md` §10):
 > ⚠️ Hoy los sensores corren en **modo simulación** (no se detectan por I²C/UART).
 > Ver `datos.md` §7.
 
+#### Modo simulación del ESP (sin hardware)
+
+Si no hay placa conectada (o falta PlatformIO), `dev.js` levanta un **ESP simulado**
+(`tools/esp-sim.js`) que habla MQTT igual que el firmware: publica telemetría de los
+4 sensores y responde a los comandos (`read`, `config`, `relay/set`). Así el resto del
+stack (backend, DB, plant-service) funciona sin hardware.
+
+| Forma | Comando |
+|---|---|
+| Automática | `node dev.js` — si no detecta ningún puerto serie, cae a simulación |
+| Forzada | `node dev.js --esp-simulation` (o `npm run dev:sim`) |
+| Solo el simulador | `npm run esp32:sim` |
+
+Variables opcionales del simulador: `MQTT_BROKER_URL`, `SIM_CLIENT_ID`,
+`DEVICE_ID` y `SIM_INTERVAL_*_MS` (ver cabecera de `tools/esp-sim.js`).
+
 ### Capa 2 — Data platform 🟡
 
 | Elemento | Detalle | Ruta |
@@ -203,6 +219,7 @@ sequenceDiagram
 | Interfaz web (Vite) | 5173 | `interfaz web/` |
 | plant-service (FastAPI) | 8000 | `plant-service/` (uvicorn) |
 | Firmware ESP32 | `/dev/ttyUSB0` | `esp32/` (PlatformIO) |
+| ESP simulado *(sin hardware)* | — (MQTT 1883) | `tools/esp-sim.js` vía `dev.js --esp-simulation` |
 | **control-service** *(propuesto)* | 8100 | nuevo, integrado en `dev.js` |
 
 Todo se orquesta con `node dev.js` (ver `dev.js`), que además valida las

@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from app.integrations.deepseek import extract_json, normalize_phases
 from app.schemas.recommendation import RecommendationResponse
-from app.schemas.targets import PhaseTargets, RangeTarget
+from app.schemas.targets import PhaseTargets, RangeTarget, unit_bounds
 from tests.conftest import sample_recommendation
 
 
@@ -85,3 +85,36 @@ def test_custom_target_preserves_informational_defaults() -> None:
     )
     assert targets.custom["vpd"].informational_only is True
     assert targets.custom["vpd"].controllable is False
+
+
+# --- Validación por unidad (RangeTarget) ---------------------------------
+
+
+def test_co2_ppm_range_is_accepted() -> None:
+    # Antes fallaba con 422 por el tope genérico le=200.
+    target = RangeTarget(min=400, target=900, max=1200, unit="ppm")
+    assert target.target == 900
+
+
+def test_co2_without_unit_skips_numeric_bound() -> None:
+    target = RangeTarget(min=400, target=900, max=1200)
+    assert unit_bounds(None) is None
+    assert target.max == 1200
+
+
+def test_temperature_out_of_physical_range_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        RangeTarget(min=20, target=25, max=999, unit="°C")
+
+
+def test_humidity_over_100_percent_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        RangeTarget(min=0, target=50, max=150, unit="%")
+
+
+def test_unit_aliases_and_case_insensitivity() -> None:
+    assert unit_bounds("PPM") == (0, 50000)
+    assert unit_bounds("°C") == (-50, 100)
+    assert unit_bounds("%HR") == (0, 100)
+    assert unit_bounds("µS/cm") == (0, 50000)
+    assert unit_bounds("unidad-desconocida") is None

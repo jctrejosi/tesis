@@ -59,25 +59,25 @@ namespace sensors {
             case 0:
                 if (now - last_bme >= bme680.get_config().interval_ms) {
                     last_bme = now;
-                    bme680::Publisher::publish(bme680.read());
+                    bme680::Publisher::publish(bme680.read(), bme680.get_config().simulation);
                 }
                 break;
             case 1:
                 if (now - last_as >= as7341.get_config().interval_ms) {
                     last_as = now;
-                    as7341::Publisher::publish(as7341.read());
+                    as7341::Publisher::publish(as7341.read(), as7341.get_config().simulation);
                 }
                 break;
             case 2:
                 if (now - last_co2 >= mhz19b.get_config().interval_ms) {
                     last_co2 = now;
-                    mhz19b::Publisher::publish(mhz19b.read());
+                    mhz19b::Publisher::publish(mhz19b.read(), "mhz19b", mhz19b.get_config().simulation);
                 }
                 break;
             case 3:
                 if (now - last_ec >= soil_ec.get_config().interval_ms) {
                     last_ec = now;
-                    soil_ec_rs485::Publisher::publish(soil_ec.read());
+                    soil_ec_rs485::Publisher::publish(soil_ec.read(), soil_ec.get_config().simulation);
                 }
                 break;
         }
@@ -89,30 +89,30 @@ namespace sensors {
 
         Serial.println("[SYNC] global sampling");
 
-        bme680::Publisher::publish(bme680.read());
-        as7341::Publisher::publish(as7341.read());
+        bme680::Publisher::publish(bme680.read(), bme680.get_config().simulation);
+        as7341::Publisher::publish(as7341.read(), as7341.get_config().simulation);
 
-        mhz19b::Publisher::publish(mhz19b.read());
-        soil_ec_rs485::Publisher::publish(soil_ec.read());
+        mhz19b::Publisher::publish(mhz19b.read(), "mhz19b", mhz19b.get_config().simulation);
+        soil_ec_rs485::Publisher::publish(soil_ec.read(), soil_ec.get_config().simulation);
     }
 
     // =========================================================
     // publish inmediato
 
     void publish_bme680_now() {
-        bme680::Publisher::publish(bme680.read());
+        bme680::Publisher::publish(bme680.read(), bme680.get_config().simulation);
     }
 
     void publish_as7341_now() {
-        as7341::Publisher::publish(as7341.read());
+        as7341::Publisher::publish(as7341.read(), as7341.get_config().simulation);
     }
 
     void publish_mhz19b_now() {
-        mhz19b::Publisher::publish(mhz19b.read());
+        mhz19b::Publisher::publish(mhz19b.read(), "mhz19b", mhz19b.get_config().simulation);
     }
 
     void publish_soil_ec_rs485_now() {
-        soil_ec_rs485::Publisher::publish(soil_ec.read());
+        soil_ec_rs485::Publisher::publish(soil_ec.read(), soil_ec.get_config().simulation);
     }
 
     void publish_all_now() {
