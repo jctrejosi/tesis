@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
@@ -15,13 +14,32 @@ services:
     volumes:
       - timescale-data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cea_user -d cea_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
+  # Broker MQTT en contenedor. Se levanta con `node dev.js` (docker compose up -d)
+  # y se detiene con `node dev.js --stop` / `npm run down`.
   mosquitto:
     image: eclipse-mosquitto
     container_name: cea-mqtt
+    restart: unless-stopped
     ports:
-      - "1883:1883"
-      - "9001:9001"
+      - "1883:1883" # MQTT
+      - "9001:9001" # MQTT sobre WebSockets
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -p 1883 -t '$$SYS/broker/uptime' -C 1 -W 5 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
 volumes:
   timescale-data:
+  mosquitto-data:

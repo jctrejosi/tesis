@@ -68,15 +68,19 @@ export class TelemetryService {
       this.logger.error('Error al insertar telemetría', err);
     }
 
-    // 6. Procesar datos derivados
-    await this.analyticsService.processSensorData(
-      sensorAlias,
-      sensorId,
-      device_id,
-      sampleId,
-      realTime,
-      metrics,
-    );
+    // 6. Procesar datos derivados (no debe tumbar el servicio si falla).
+    try {
+      await this.analyticsService.processSensorData(
+        sensorAlias,
+        sensorId,
+        device_id,
+        sampleId,
+        realTime,
+        metrics,
+      );
+    } catch (err) {
+      this.logger.error('Error al procesar datos derivados', err);
+    }
   }
 
   private async resolveTimestamp(

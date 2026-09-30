@@ -39,7 +39,19 @@ const PLANT_DIR = path.join(ROOT, 'plant-service');
 const ESP32_DIR = path.join(ROOT, 'esp32');
 const LOG_DIR = path.join(ROOT, 'logs');
 const MONITOR_SPEED = 115200;
-const PLANT_PORT = 8000;
+
+/* Puertos por defecto de cada servicio. Se pueden sobrescribir con
+ * --backend-port/--web-port/--plant-port o con las variables de entorno
+ * BACKEND_PORT/WEB_PORT/PLANT_PORT. Si el puerto elegido ya está ocupado
+ * (p. ej. por otro proyecto), dev.js busca el siguiente libre. */
+const DEFAULT_BACKEND_PORT = 3000;
+const DEFAULT_WEB_PORT = 5173;
+const DEFAULT_PLANT_PORT = 8000;
+const PORTS = {
+  backend: DEFAULT_BACKEND_PORT,
+  web: DEFAULT_WEB_PORT,
+  plant: DEFAULT_PLANT_PORT,
+};
 
 fs.mkdirSync(LOG_DIR, { recursive: true });
 
@@ -126,13 +138,20 @@ function findPio() {
   return candidates.find((c) => c && fs.existsSync(c)) || null;
 }
 
+const VIRTUAL_IFACE = /^(docker|br-|veth|virbr|vmnet|tun|tap|tailscale|zt|wg|lo)/;
+
+// IPv4 de la LAN real (ignora bridges de docker y otras interfaces virtuales).
 function lanIPv4() {
-  for (const list of Object.values(os.networkInterfaces())) {
+  const candidates = [];
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
+    if (VIRTUAL_IFACE.test(name)) continue;
     for (const it of list || []) {
-      if (it.family === 'IPv4' && !it.internal) return it.address;
+      if (it.family === 'IPv4' && !it.internal) candidates.push({ name, address: it.address });
     }
   }
-  return null;
+  if (!candidates.length) return null;
+  const preferred = candidates.find((c) => /^(wl|en|eth)/.test(c.name));
+  return (preferred || candidates[0]).address;
 }
 
 /* ----------------------- plant-service (Python) ------------------------ */
@@ -214,6 +233,10 @@ Opciones:
   --upload-port <p>      Puerto serie para subir el firmware (ej. /dev/ttyUSB0)
   --monitor-port <p>     Puerto serie para el monitor serial
   --baud <n>             Baud rate del monitor (por defecto: 115200)
+  --backend-port <p>     Puerto del backend NestJS (por defecto: 3000)
+  --web-port <p>         Puerto de la interfaz web Vite (por defecto: 5173)
+  --plant-port <p>       Puerto de plant-service (por defecto: 8000)
+                         Si están ocupados, se busca el siguiente libre.
   --watch                Backend en modo watch (por defecto)
   --prod                 Backend compilado (yarn build + node dist/main)
   --install              Fuerza la instalación de dependencias aunque no falten
@@ -235,6 +258,9 @@ const opts = {
   uploadPort: null,
   monitorPort: null,
   baud: MONITOR_SPEED,
+  backendPort: Number(process.env.BACKEND_PORT) || DEFAULT_BACKEND_PORT,
+  webPort: Number(process.env.WEB_PORT) || DEFAULT_WEB_PORT,
+  plantPort: Number(process.env.PLANT_PORT) || DEFAULT_PLANT_PORT,
   prod: false,
   install: false,
   skipInstall: false,
@@ -244,8 +270,9 @@ const opts = {
 };
 
 function parseArgs(argv) {
+  let i = 0;
   const next = () => argv[++i];
-  for (let i = 0; i < argv.length; i++) {
+  for (i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
       case '-h':
@@ -293,6 +320,15 @@ function parseArgs(argv) {
         break;
       case '--baud':
         opts.baud = parseInt(next(), 10) || MONITOR_SPEED;
+        break;
+      case '--backend-port':
+        opts.backendPort = parseInt(next(), 10) || opts.backendPort;
+        break;
+      case '--web-port':
+        opts.webPort = parseInt(next(), 10) || opts.webPort;
+        break;
+      case '--plant-port':
+        opts.plantPort = parseInt(next(), 10) || opts.plantPort;
         break;
       case '--watch':
         opts.prod = false;
@@ -371,12 +407,12 @@ function killTree(child, signal = 'SIGTERM') {
 // escribe su salida directamente a logs/<name>.log (pid en logs/<name>.pid).
 // Así sobrevive a la salida de dev.js y al cierre de la terminal; se detiene
 // luego con `node dev.js --stop`.
-function startService(name, cmd, args, cwd, { fatal = true } = {}) {
+function startService(name, cmd, args, cwd, { fatal = true, env = {} } = {}) {
   const logPath = path.join(LOG_DIR, `${name}.log`);
   const outFd = fs.openSync(logPath, 'a');
   const child = spawn(cmd, args, {
     cwd,
-    env: { ...process.env },
+    env: { ...process.env, ...env },
     stdio: ['ignore', outFd, outFd],
     detached: process.platform !== 'win32',
   });
@@ -450,12 +486,49 @@ function tcpReachable(port, host = '127.0.0.1') {
   });
 }
 
+// ¿Se puede escuchar en el puerto? (libre = nadie lo está usando).
+function portFree(port) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', () => resolve(false));
+    srv.once('listening', () => srv.close(() => resolve(true)));
+    srv.listen(port, '127.0.0.1');
+  });
+}
+
+// Devuelve `preferred` si está libre; si no, el siguiente puerto disponible.
+async function resolvePort(preferred, label) {
+  for (let port = preferred; port < preferred + 50; port++) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await portFree(port)) {
+      if (port !== preferred) {
+        log('dev', paint('yellow', `${label}: puerto ${preferred} ocupado, usando ${port}`));
+      }
+      return port;
+    }
+  }
+  log('dev', paint('red', `No hay puertos libres cerca de ${preferred} para ${label}.`));
+  process.exit(1);
+  return preferred; // nunca se alcanza
+}
+
 async function httpOk(url) {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
     return res.status < 500;
   } catch {
     return false;
+  }
+}
+
+// GET que devuelve el JSON parseado (o null si falla el HTTP).
+async function httpJson(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+    if (res.status >= 500) return null;
+    return await res.json();
+  } catch {
+    return null;
   }
 }
 
@@ -486,8 +559,8 @@ function dbSchemaCheck() {
 
 // Espera a que el dev server de Vite responda (puerto por defecto 5173).
 async function waitForWeb() {
-  const ok = await waitFor('web', () => httpOk('http://localhost:5173'), 60000);
-  return ok ? 'http://localhost:5173' : null;
+  const ok = await waitFor('web', () => httpOk(`http://localhost:${PORTS.web}`), 60000);
+  return ok ? `http://localhost:${PORTS.web}` : null;
 }
 
 /* --------------------------- pasos del flujo ------------------------ */
@@ -545,6 +618,8 @@ function esp32BrokerHint() {
           `Si el ESP32 se conecta a la misma red, ajusta MQTT_BROKER a ${ip} y vuelve a subir el firmware.`,
       ),
     );
+  } else if (m && ip) {
+    log('esp32', paint('green', `broker ${m[1]} coincide con la IP LAN: el ESP32 podrá publicar en el broker.`));
   }
 }
 
@@ -579,15 +654,15 @@ function printSummary(webUrl) {
   console.log(paint('green', '  Entorno levantado'));
   console.log(paint('green', '================================================='));
   if (!opts.skipBackend) {
-    console.log('  Backend API   ->  http://localhost:3000');
-    console.log('  Swagger UI    ->  http://localhost:3000/api/docs');
-    console.log('  Health check  ->  http://localhost:3000/health');
+    console.log(`  Backend API   ->  http://localhost:${PORTS.backend}`);
+    console.log(`  Swagger UI    ->  http://localhost:${PORTS.backend}/api/docs`);
+    console.log(`  Health check  ->  http://localhost:${PORTS.backend}/health`);
   }
   if (!opts.skipWeb) {
-    console.log(`  Interfaz web  ->  ${webUrl || 'http://localhost:5173 (revisa el log de vite)'}`);
+    console.log(`  Interfaz web  ->  ${webUrl || `http://localhost:${PORTS.web} (revisa el log de vite)`}`);
   }
   if (!opts.skipPlantservice) {
-    console.log(`  plant-service ->  http://localhost:${PLANT_PORT}  (docs: http://localhost:${PLANT_PORT}/docs)`);
+    console.log(`  plant-service ->  http://localhost:${PORTS.plant}  (docs: http://localhost:${PORTS.plant}/docs)`);
   }
   if (!opts.skipEsp32) {
     console.log(
@@ -817,10 +892,15 @@ async function main() {
     }
   }
 
-  // 1. .env del backend (no pisa uno existente).
+  // 1. Puertos libres (evita chocar con otros proyectos que ya usan 3000/8000).
+  if (!opts.skipBackend) PORTS.backend = await resolvePort(opts.backendPort, 'backend');
+  if (!opts.skipWeb) PORTS.web = await resolvePort(opts.webPort, 'web');
+  if (!opts.skipPlantservice) PORTS.plant = await resolvePort(opts.plantPort, 'plant-service');
+
+  // 2. .env del backend (no pisa uno existente).
   if (!opts.skipBackend) ensureBackendEnv();
 
-  // 2. Base de datos + broker MQTT.
+  // 3. Base de datos + broker MQTT.
   if (!opts.skipDb) {
     const up = await runOnce('db', 'docker', ['compose', 'up', '-d'], DB_DIR, 'blue');
     if (up !== 0) {
@@ -831,7 +911,11 @@ async function main() {
     }
     await waitFor('db', dbReady, 180000);
     dbSchemaCheck();
-    await waitFor('mqtt', () => tcpReachable(1883), 30000);
+    const mqttUp = await waitFor('mqtt', () => tcpReachable(1883), 30000);
+    if (mqttUp) {
+      const ws = await tcpReachable(9001);
+      log('mqtt', ws ? paint('green', 'escuchando 1883 (MQTT) y 9001 (WebSockets)') : paint('dim', 'escuchando 1883 (MQTT); 9001 (WebSockets) no disponible'));
+    }
     // Vuelca los logs de los contenedores a logs/db.log y logs/mqtt.log.
     startService('db', 'docker', ['logs', '-f', 'cea-timescaledb'], DB_DIR, { fatal: false });
     startService('mqtt', 'docker', ['logs', '-f', 'cea-mqtt'], DB_DIR, { fatal: false });
@@ -858,22 +942,41 @@ async function main() {
   // 4. Backend NestJS.
   let webUrl = null;
   if (!opts.skipBackend) {
+    const backendEnv = {
+      PORT: String(PORTS.backend),
+      CORS_ORIGINS: `http://localhost:${PORTS.web},http://localhost:${PORTS.backend}`,
+    };
+    if (!opts.skipPlantservice) {
+      // Gateway del backend hacia plant-service (debe apuntar al puerto real).
+      backendEnv.PLANT_SERVICE_URL = `http://localhost:${PORTS.plant}`;
+    }
     if (opts.prod) {
       const b = await runOnce('backend', backendRunner.bin, scriptArgs(backendRunner, 'build'), BACKEND_DIR, 'magenta');
       if (b !== 0) {
         log('dev', paint('red', 'El build del backend falló.'));
         process.exit(1);
       }
-      startService('backend', process.execPath, ['dist/main'], BACKEND_DIR);
+      startService('backend', process.execPath, ['dist/main'], BACKEND_DIR, { env: backendEnv });
     } else {
-      startService('backend', backendRunner.bin, scriptArgs(backendRunner, 'start:dev'), BACKEND_DIR);
+      startService('backend', backendRunner.bin, scriptArgs(backendRunner, 'start:dev'), BACKEND_DIR, { env: backendEnv });
     }
-    await waitFor('backend', () => httpOk('http://localhost:3000/health'), 120000);
+    const backendUp = await waitFor('backend', () => httpOk(`http://localhost:${PORTS.backend}/health`), 120000);
+    if (backendUp) {
+      // Verifica que el backend tenga sus dependencias realmente conectadas.
+      const h = await httpJson(`http://localhost:${PORTS.backend}/health`);
+      if (h && h.database === 'connected' && h.mqtt === 'connected') {
+        log('backend', paint('green', `dependencias OK (database: ${h.database}, mqtt: ${h.mqtt})`));
+      } else {
+        log('backend', paint('yellow', `responde pero con dependencias sin conectar (database: ${h?.database ?? '?'}, mqtt: ${h?.mqtt ?? '?'})`));
+      }
+    }
   }
 
   // 5. Interfaz web (Vite).
   if (!opts.skipWeb) {
-    startService('web', webRunner.bin, scriptArgs(webRunner, 'dev'), WEB_DIR);
+    startService('web', webRunner.bin, scriptArgs(webRunner, 'dev'), WEB_DIR, {
+      env: { WEB_PORT: String(PORTS.web) },
+    });
     webUrl = await waitForWeb();
   }
 
@@ -897,8 +1000,21 @@ async function main() {
         process.exit(1);
       }
     }
-    startService('plant', venvPython, ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', String(PLANT_PORT)], PLANT_DIR);
-    await waitFor('plant', () => httpOk(`http://localhost:${PLANT_PORT}/api/v1/health`), 60000);
+    startService('plant', venvPython, ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', String(PORTS.plant)], PLANT_DIR);
+    const plantUp = await waitFor('plant', () => httpOk(`http://localhost:${PORTS.plant}/api/v1/health`), 60000);
+    if (plantUp) {
+      // Verifica la DB de plant-service y el gateway backend -> plant-service.
+      const h = await httpJson(`http://localhost:${PORTS.plant}/api/v1/health`);
+      log('plant', h && h.database === 'connected'
+        ? paint('green', `dependencias OK (database: ${h.database})`)
+        : paint('yellow', `responde pero database: ${h?.database ?? '?'}`));
+      if (!opts.skipBackend) {
+        const proxyOk = await httpOk(`http://localhost:${PORTS.backend}/plant-service/api/v1/health`);
+        log('plant', proxyOk
+          ? paint('green', `gateway backend → plant-service OK (:${PORTS.backend} → :${PORTS.plant})`)
+          : paint('yellow', `gateway backend → plant-service no responde (:${PORTS.backend} → :${PORTS.plant})`));
+      }
+    }
   }
 
   // 7. ESP32 (PlatformIO): build → upload → monitor opcional.

@@ -6,6 +6,19 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ================================================================
+-- utilidad: actualizar updated_at automáticamente
+-- (debe existir antes de los CREATE TRIGGER que la referencian)
+-- ================================================================
+
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ================================================================
 -- dominio: usuarios
 -- ================================================================
 
@@ -209,15 +222,8 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_sample_id
 
 -- ================================================================
 -- utilidad opcional: actualizar updated_at en sensor_configs
+-- (la función set_updated_at() se define al inicio del script)
 -- ================================================================
-CREATE OR REPLACE FUNCTION set_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 DROP TRIGGER IF EXISTS trg_sensor_configs_updated_at ON sensor_configs;
 
 CREATE TRIGGER trg_sensor_configs_updated_at
