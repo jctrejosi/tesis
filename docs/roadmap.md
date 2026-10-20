@@ -97,6 +97,14 @@ flowchart LR
 - Se puede reentrenar de forma reproducible desde `build_dataset`.
 - Integrado como versión alternativa en el registry.
 
+**Estado (2026-10-19).** Integración ✅: CausalFormer end-to-end (h=1 y rollout h=6),
+entrenamiento reproducible (`runnables/train_tesis.py`) y run registrado
+(`control_service.model_registry`, `kind=world_model`). Calidad 🟡: MASE medio 0.87
+en bloques contiguos y 0.28/0.72 (interleaved, h=1/h=6), con `par` como única
+métrica que pierde. Bloqueadores: dataset de 5.5 h de un solo día y el baseline
+XGB de Fase 2, que no es una referencia limpia (97 registros solapados con la
+validación, features de hora absolutas y `/predict` desfasado un paso).
+
 **Depende de:** Fase 2 + datos reales. **Desbloquea:** Fase 4.
 
 ## Fase 4 — Observabilidad y aprendizaje (capas 8–9)

@@ -4,18 +4,40 @@ Mismo contrato que `scripts/build_dataset.js` y `docs/datos.md`:
 - `x_t`: núcleo de 10 métricas, re-muestreadas por `time_bucket` + forward-fill.
 - `u_t`: 4 canales del relé (1 = ON, 0 = OFF), forward-fill.
 - `d_t`: hora (sin/cos) + día de la semana (sin/cos) — §1.3.
+
+Capa 3 (docs/especificacion.md §5) añade sobre el re-muestreo:
+- **imputación acotada**: huecos de hasta `max_gap_steps` se rellenan (`active=1`);
+  huecos más largos quedan `active=0` (no se imputan) — máscara `active_entries`.
+- **outliers por rango físico** (`unit_bounds`): un valor fuera de cota se trata como
+  hueco, no contamina la ventana.
+- **máscara `observed`**: distingue valor observado de valor imputado.
+- **objetivo `x*`**: setpoints/fase vigentes (de `plant_service.setpoint_snapshots`).
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.config import Settings
+
+
+@dataclass
+class MetricSeries:
+    """Serie re-muestreada de una métrica con sus máscaras.
+
+    `values` es la señal lista para el modelo; `active` marca los pasos usables
+    (observados o imputados dentro del límite) y `observed` los realmente medidos.
+    """
+
+    values: list[float]
+    active: list[int]
+    observed: list[int]
 
 
 @dataclass
@@ -28,6 +50,10 @@ class Window:
     d: list[list[float]]      # [k][dim_d]
     metrics: list[str]
     channels: list[int]
+    active: list[list[int]] = field(default_factory=list)    # [k][dim_x] 1=usable
+    observed: list[list[int]] = field(default_factory=list)  # [k][dim_x] 1=medido
+    x_target: dict | None = None   # x* (setpoints vigentes)
+    phase: str | None = None       # fase activa (-> static_features)
 
     @property
     def latest(self) -> list[float]:
@@ -63,6 +89,43 @@ def _forward_fill(seq: list, initial=None) -> list:
         else:
             last = value
     return seq
+
+
+def resample_metric(
+    raw: list[float | None],
+    bounds: tuple[float, float] | None = None,
+    max_gap: int = 3,
+    default: float = 0.0,
+) -> MetricSeries:
+    """Re-muestrea una métrica con imputación acotada y máscaras.
+
+    - Valor ausente **o fuera de cota física** ⇒ cuenta como hueco.
+    - Hueco de longitud `<= max_gap` ⇒ forward-fill e `active=1` (imputado).
+    - Hueco más largo ⇒ forward-fill del último válido pero `active=0`.
+    - Sin ningún valor previo ⇒ `default`, `active=0`.
+    """
+    values: list[float] = []
+    active: list[int] = []
+    observed: list[int] = []
+    last: float | None = None
+    gap = 0
+    for value in raw:
+        if value is None or (bounds is not None and not (bounds[0] <= value <= bounds[1])):
+            gap += 1
+            observed.append(0)
+            if last is None:
+                values.append(default)
+                active.append(0)
+            else:
+                values.append(last)
+                active.append(1 if gap <= max_gap else 0)
+        else:
+            gap = 0
+            last = float(value)
+            values.append(last)
+            active.append(1)
+            observed.append(1)
+    return MetricSeries(values=values, active=active, observed=observed)
 
 
 def _window_times(end: datetime, freq: int, count: int) -> list[datetime]:
@@ -140,19 +203,23 @@ async def build_window(
     metrics = settings.metric_list
     channels = settings.channel_list
     end = end or datetime.now(timezone.utc)
+    bounds = settings.bounds
 
     timeline = _window_times(end, freq, k)
     t0 = timeline[0]
     t1 = timeline[-1] + timedelta(seconds=freq)
     index = {ts: i for i, ts in enumerate(timeline)}
 
-    x_series: dict[str, list] = {m: [None] * k for m in metrics}
+    raw_x: dict[str, list] = {m: [None] * k for m in metrics}
     for row in await _telemetry_buckets(engine, settings, t0, t1):
         i = index.get(row["bucket"])
-        if i is not None and row["metric_name"] in x_series:
-            x_series[row["metric_name"]][i] = float(row["value"])
-    for m in metrics:
-        _forward_fill(x_series[m], 0.0)
+        if i is not None and row["metric_name"] in raw_x:
+            raw_x[row["metric_name"]][i] = float(row["value"])
+
+    x_res = {
+        m: resample_metric(raw_x[m], bounds.get(m), settings.max_gap_steps)
+        for m in metrics
+    }
 
     u_series: dict[int, list[int]] = {c: [0] * k for c in channels}
     for row in await _action_buckets(engine, settings, t0, t1):
@@ -160,14 +227,48 @@ async def build_window(
         if i is not None and row["channel"] in u_series:
             u_series[row["channel"]][i] = 1 if row["state"] == "ON" else 0
 
+    x_target, phase = await fetch_target(engine, settings, timeline[-1])
+
     return Window(
         timestamps=timeline,
-        x=[[x_series[m][i] for m in metrics] for i in range(k)],
+        x=[[x_res[m].values[i] for m in metrics] for i in range(k)],
         u=[[u_series[c][i] for c in channels] for i in range(k)],
         d=[context_vector(ts) for ts in timeline],
         metrics=metrics,
         channels=channels,
+        active=[[x_res[m].active[i] for m in metrics] for i in range(k)],
+        observed=[[x_res[m].observed[i] for m in metrics] for i in range(k)],
+        x_target=x_target,
+        phase=phase,
     )
+
+
+async def fetch_target(
+    engine: AsyncEngine, settings: Settings, at: datetime
+) -> tuple[dict | None, str | None]:
+    """Setpoints (`x*`) de la última instantánea vigente en `at`.
+
+    Degrada a `(None, None)` si `plant_service.setpoint_snapshots` no existe
+    (p. ej. tests aislados) — el estado sigue siendo válido sin objetivo.
+    """
+    sql = text(
+        """
+        SELECT phase_name, targets
+          FROM plant_service.setpoint_snapshots
+         WHERE valid_from <= :at
+         ORDER BY valid_from DESC
+         LIMIT 1
+        """
+    )
+    try:
+        async with engine.connect() as conn:
+            row = (await conn.execute(sql, {"at": at})).mappings().first()
+    except SQLAlchemyError:
+        return None, None
+    if not row:
+        return None, None
+    targets = row["targets"]
+    return (dict(targets) if targets else None), row["phase_name"]
 
 
 async def fetch_actuals(

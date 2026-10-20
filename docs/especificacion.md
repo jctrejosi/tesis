@@ -89,10 +89,11 @@ exacto a horizonte corto; RL destila o extiende a horizonte largo; Safety veta; 
 > saberlo para no mezclar dinámicas.
 
 > Estado de los artefactos en Astaroth (verificado): `XGBoost-api` **utilizable**
-> (regresión + metadata en `saved_models/{name}/`); `transformerApi` **con imports
-> rotos** (`api.main` vs `apis.main`) y falta el objeto `config`; `causalTransformer-api`
-> es el más alineado pero **falta `src/models/`** (no vendorizado) y arrastra
-> Celery+Hydra+MLflow+Ray. **Decisión (A6/D9):** se **consumen por HTTP** (`XGBoost-api`
+> (regresión + metadata en `saved_models/{name}/`); `transformerApi` **reparado**
+> (imports + `config`); `causalTransformer-api` es el más alineado, con
+> **`src/models/` ya vendorizado** y entrenamiento local (run `tesis-ct-001`).
+> El upstream sigue arrastrando Celery+Hydra+MLflow+Ray, pero la tesis **no los usa**:
+> entrena con `runnables/train_tesis.py` y carga runs locales. **Decisión (A6/D9):** se **consumen por HTTP** (`XGBoost-api`
 > :8011, `transformerApi` :8013, `causalTransformer-api` :8014) y se **reparan** en la fase
 > que los use (D10), no se reimplementan.
 
@@ -109,16 +110,20 @@ exacto a horizonte corto; RL destila o extiende a horizonte largo; Safety veta; 
 | `d_t ∈ R^{m}` | hora del día (sin/cos), día de la semana, fase activa (one-hot), `simulated` | derivado | XGBoost, CausalFormer |
 | `x*_τ` | setpoint de la fase activa (**solo parámetros accionables**) | `setpoint_snapshots` | MPC, RL, Safety |
 
-### 4.2 Mapeo del contrato causalTransformer
+### 4.2 Mapeo del contrato causalTransformer (implementado ✅)
+
+Adaptador: `control-service/app/predictors.py::CausalFormer`. La alineación sigue
+la del upstream: el tratamiento en `j+1` explica el outcome en `j+1`, así que la
+última posición predice `x_{t+1}`.
 
 | Campo causalTransformer | En la tesis | Notas |
 |---|---|---|
-| `prev_outputs` | `x_{t-k..t}` | estado observado |
-| `prev_treatments` | `u_{t-k..t-1}` | historial de acciones |
-| `current_treatments` | `u_t` | acción actual |
-| `static_features` | fase activa (one-hot), especie | **fijo**, no variable en el tiempo |
-| `active_entries` | máscara de validez | huecos por reconexión MQTT |
-| **`d_t` variable** | ⚠️ **no tiene hueco propio** | **decisión abierta**: extender el contrato (canal de contexto temporal) o mapearlo a `vitals` |
+| `prev_outputs` | `x[k]` | `[1,k,dim_x]` |
+| `prev_treatments` | `u[0..k-1]` | `[1,k,dim_u]` |
+| `current_treatments` | `u[1..k]` (último = acción candidata) | `[1,k,dim_u]` |
+| `static_features` | fase activa (one-hot) | `[1,len(causal_phases)]`; desconocida ⇒ ceros |
+| `active_entries` | `active` (1 si algún sensor válido) | `[1,k,1]` |
+| `d_t` (hora/día) | `vitals` | `[1,k,dim_d]` ✅ **resuelto en Fase 3** |
 
 ### 4.3 Registro de actuadores (el relé es genérico)
 
@@ -211,16 +216,30 @@ La semántica se resuelve aguas arriba (decisión A2: el control vive fuera del 
 
 ### Capa 3 — State estimator (`control-service/state.py`)
 
-1. **Ventana** `[t-k, t]` (k≈30) por `time_bucket` (decision: **1 min**, ver §7).
-2. **Re-muestreo + forward-fill** de acciones; **imputación** de huecos cortos; marca de
-   `active_entries` para huecos largos.
-3. **Normalización** con `scaler` versionado (media/desv por variable); **outliers** por
-   rango físico (reutiliza `unit_bounds` de `plant-service`).
-4. **Features temporales** `d_t`: hora sin/cos, día, fase.
-5. Salida: tensores `x_hist [k,dim_x]`, `u_hist [k,dim_u]`, `d_hist [k,dim_d]` y `x*`.
+**Estado:** ✅ implementado (`state.py` + `scaler.py`).
 
-**Criterio de aceptación:** dado un instante, `state.py` reconstruye la ventana completa y
-el `dataset_hash` reproducible (`scripts/build_dataset.js` ya lo produce).
+1. **Ventana** `[t-k, t]` (`k=15`) por `time_bucket` (**1 min**, §7).
+2. **Re-muestreo + forward-fill** de acciones; **imputación acotada**: los huecos de
+   hasta `max_gap_steps` se rellenan (`active=1`), los más largos quedan `active=0`
+   (no se imputan). La **máscara `active_entries`** se expone en `/state` (`active`),
+   junto a `observed` (1 = medido, 0 = imputado).
+3. **Outliers por rango físico**: un valor fuera de `metric_bounds` (defaults alineados
+   con `unit_bounds` de plant-service; override vía `METRIC_BOUNDS`) se trata como hueco.
+   **Normalización** con `scaler` z-score **versionado** (`scaler.py`, tabla
+   `control_service.scalers`), **compartido con el coste del MPC** (capa 5, D12):
+   `z = (x − mean) / std`.
+4. **Features temporales** `d_t`: hora sin/cos + día de la semana sin/cos; la **fase**
+   se expone aparte (`phase` → `static_features`).
+5. Salida: tensores `x_hist [k,dim_x]`, `u_hist [k,dim_u]`, `d_hist [k,dim_d]`, máscaras
+   `active`/`observed [k,dim_x]` y **objetivo `x*`** (`x_target` + fase vigente de
+   `plant_service.setpoint_snapshots`).
+
+**API:** `GET /state` (`?normalize=true` añade `z`), `GET /scaler`,
+`POST /scaler/fit {since|until|hours,name}`.
+
+**Criterio de aceptación:** dado un instante, `state.py` reconstruye la ventana
+completa, marca huecos y entrega un `scaler` reproducible (`version` = hash de
+estadísticos); `dataset_hash` reproducible (`scripts/build_dataset.js`).
 
 ### Capa 4 — World model (`control-service/world_model.py`)
 
@@ -353,6 +372,29 @@ registry (`control_service.model_registry`) y **matriz de efecto `E`** (`GET /ef
 **Astaroth montado y reparado**: `transformerApi` (imports `api.main`→`apis.config`, +
 `config`) y `XGBoost-api` (`DataService.records_to_dataframe`). Desbloquea la Fase 3.
 
+**Estado Fase 3 (✅ integración / 🟡 calidad).** `src/models/` vendorizado; `runnables/train_tesis.py`
+entrena un CT en CPU sobre `files/tesis_world.ndjson` (con `u_future`/`d_future`) y ahora
+soporta **objetivo `Δx`**, **splits `tail`/`interleaved`/`blocked`**, `weight_decay`,
+validación real (`validation_step` añadido al upstream) y early stopping;
+`causalTransformer-api` carga runs locales desde `api/storage/runs/`, expone
+`GET /predict/scaling/{run_id}` y `POST /predict` funciona end-to-end desde
+`control-service` (`model:"causal"`, h=1 y rollout h=6). El adaptador reconstruye
+`x_{t+1}=x_t+Δ` y recorta a cotas físicas (capa 6 v0).
+
+**Corrección de evaluación:** `eval_tesis.py` comparaba la salida del último paso de
+una secuencia de `k+h` (≈5 h) contra `y_future[0]` (1 min); los MAE del pilot no eran
+válidos. La versión corregida ancla la ventana en `k`, hace rollout para `h>1` y
+reporta **MASE** (`MAE_modelo/MAE_persistencia`).
+
+**Resultados corregidos** (MASE medio): interleaved `0.275` (h=1) y `0.722` (h=6);
+bloques contiguos `0.873`/`0.872` (9/10 métricas mejoran) y `1.075` en el bloque
+nocturno casi constante. `par` es la única métrica que pierde (MASE 1.08–1.52).
+**Criterio «≤ XGB de Fase 2» no concluyente:** los `cea:*` se entrenaron con 97
+registros solapados con la validación, usan `hour/day` absolutos y su `/predict`
+está desfasado un paso. Reentrenados con corte limpio (`cea2:*`) no extrapolan
+(MASE 53). **Bloqueador real:** 5.5 h de un solo día (311 ventanas); hacen falta
+varios días con ciclos día/noche y excitación.
+
 ---
 
 ## 7. Decisiones abiertas (a cerrar antes de Fase 2)
@@ -385,13 +427,25 @@ registry (`control_service.model_registry`) y **matriz de efecto `E`** (`GET /ef
 | Política de excitación suave (para poder aprender `E`) | ✅ | 1 |
 | Contrato `d_t` | ✅ | 1 |
 | `control-service/` (esqueleto, `dev.js`, `/health`) | ✅ | 1 |
-| `state.py` (ventana, imputación, normalización) | ✅ | 2 |
+| `state.py` (ventana, máscaras, outliers) | ✅ | 2 |
+| Scaler z-score compartido (versionado en `control_service.scalers`) | ✅ | 2 |
+| Máscara `active_entries` + `observed` (imputación acotada) | ✅ | 2 |
+| Objetivo `x*` expuesto en `/state` | ✅ | 2 |
 | Baseline persistencia + XGBoost + iTransformer | ✅ | 2 |
 | `/predict`, métricas MAE/RMSE vs persistencia | ✅ | 2 |
 | **Matriz de efecto `E[canal][variable]`** (aprendida, SHAP/sensibilidad) | ✅ | 2 |
 | Registry de modelos (versión, `dataset_hash`) | ✅ | 2 |
-| World model CausalFormer integrado | ❌ | 3 |
-| Rollout multi-paso condicionado | ❌ | 3 |
+| `src/models/` de causalTransformer vendorizado (upstream `c49a24f`) | ✅ | 3 |
+| `runnables/train_tesis.py` (dataset + entrenamiento local, sin MLflow) | ✅ | 3 |
+| Objetivo `Δx`, splits `tail/interleaved/blocked`, `weight_decay` | ✅ | 3 |
+| Validación real (`validation_step`) + early stopping (`multi_val_loss`) | ✅ | 3 |
+| `eval_tesis.py` corregido (anclaje del horizonte) + MASE | ✅ | 3 |
+| Adaptador de contrato (`CausalFormer`: x/u/d/active + vitals) | ✅ | 3 |
+| World model CausalFormer integrado (run activo `tesis-ct-004`) | ✅ | 3 |
+| Rollout multi-paso condicionado (cliente) | ✅ | 3 |
+| Run causal registrado en `model_registry` (`kind=world_model`) | ✅ | 3 |
+| XGB baseline reentrenado con features relativas (comparación justa) | ❌ | 3/9 |
+| Tratamiento de `par` (log/robusto) y más días de datos | ❌ | 3/9 |
 | `mpc.py` (enumeración) | ❌ | 4 |
 | `safety.py` (reglas de §5, capa 6) | ❌ | 4 |
 | `actuation.py` (shadow + acks) | ❌ | 4 |

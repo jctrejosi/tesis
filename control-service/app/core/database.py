@@ -52,6 +52,25 @@ async def init_db(settings: Settings) -> None:
                     '''
                 )
             )
+            await conn.execute(
+                text(
+                    f'''
+                    CREATE TABLE IF NOT EXISTS "{schema}".scalers (
+                        id           BIGSERIAL PRIMARY KEY,
+                        name         TEXT NOT NULL,
+                        version      TEXT NOT NULL,
+                        metrics      JSONB NOT NULL,
+                        mean         JSONB NOT NULL,
+                        std          JSONB NOT NULL,
+                        samples      INT NOT NULL DEFAULT 0,
+                        dataset_hash TEXT,
+                        active       BOOLEAN NOT NULL DEFAULT true,
+                        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        UNIQUE (name, version)
+                    )
+                    '''
+                )
+            )
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     logger.info("Base de datos lista (esquema: %s)", settings.db_schema)

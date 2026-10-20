@@ -48,9 +48,9 @@ flowchart TD
 | # | Capa | Estado | Resumen |
 |---|---|---|---|
 | 1 | Hardware / adquisición | ✅ | ESP32: BME680, AS7341, MH-Z19B, Soil EC + relé de 4 canales |
-| 2 | Data platform | 🟡 | Telemetría en TimescaleDB vía MQTT; acciones ya en `control_actions` (falta setpoints históricos y fuente única) |
-| 3 | State estimator | 🟡 | Métricas derivadas deterministas; falta el vector `x_t` |
-| 4 | World / dynamics model | ❌ | No existe. Candidatos en Astaroth (`transformerApi`, `causalTransformer-api`) |
+| 2 | Data platform | ✅ | Telemetría en TimescaleDB vía MQTT; `control_actions` y `plant_service.setpoint_snapshots` |
+| 3 | State estimator | ✅ | `state.py`: ventana `x_t`, máscaras, outliers por cota, scaler z-score versionado, `x*` |
+| 4 | World / dynamics model | 🟡 | CausalFormer integrado (rollout con `u`); skill sobre persistencia en 9/10 métricas, `par` pendiente |
 | 5 | MPC | ❌ | No existe |
 | 6 | Safety layer | 🟡 | Validación básica de comandos; sin límites ni interlocks |
 | 7 | Actuation / control interface | 🟡 | El camino backend→MQTT→ESP existe; ningún controlador lo usa todavía |
@@ -72,3 +72,44 @@ Empezar por el `causalTransformer` implica primero reparar piezas ausentes
 - **Rutas** son relativas a la raíz del proyecto `tesis/`.
 - **Topics MQTT** se citan tal cual (`growbox/<alias>/data`).
 - Los bloques marcados como *propuesto* **no existen aún** en el código.
+
+## Puesta en marcha
+
+```bash
+# 1) Modelos de Astaroth (solo los que usa la tesis)
+cd Astaroth && node dev.js --tesis        # xgboost :8011, transformer :8013, causal :8014
+
+# 2) Resto del entorno (DB/MQTT docker + backend + web + servicios + ESP simulado)
+cd tesis && node dev.js --esp-simulation  # :3010, :5173, :8000, :8100
+
+# parar
+cd tesis && node dev.js --stop
+cd Astaroth && node dev.js --stop
+```
+
+Si el proceso se lanza desde un shell efímero (CI, agente), `dev.js` daemoniza los
+servicios pero el shell puede matar el grupo. Para un entorno persistente:
+
+```bash
+systemd-run --user --unit=tesis-dev \
+  --setenv=PATH=$HOME/.config/nvm/versions/node/v26.8.1/bin:/usr/local/bin:/usr/bin:/bin \
+  --working-directory=$HOME/Proyectos/seeds/tesis \
+  /bin/sh -c 'node dev.js --esp-simulation; exec sleep infinity'
+systemctl --user status tesis-dev   # o: journalctl --user -u tesis-dev -f
+```
+
+El `sleep infinity` mantiene vivo el cgroup: `dev.js` termina tras daemonizar y, si
+no, systemd mata a los hijos al cerrar la unidad.
+
+### Comprobación rápida del lazo
+
+```bash
+curl -s localhost:3010/health          # database + mqtt
+curl -s localhost:8100/health          # DB + Astaroth (xgb/transformer/causal)
+curl -s localhost:8100/state           # ventana x_t
+curl -s -X POST localhost:8100/predict -H 'content-type: application/json' \
+  -d '{"model":"causal","run_id":"tesis-ct-004","h":2}'
+# relé: API → MQTT → ESP (el payload va anidado)
+curl -s -X POST localhost:3010/actuators/canal_1/command \
+  -H 'content-type: application/json' -d '{"command":"set","payload":{"state":"ON","channel":1}}'
+```

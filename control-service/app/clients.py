@@ -3,6 +3,7 @@
 `control-service` **no reimplementa** los modelos: los consume por URL.
 - `XGBoost-api` (:8011)  → baseline por variable (lags + fecha + columnas).
 - `transformerApi` (:8013) → iTransformer (forecast seq→seq; pasivo, sin acciones).
+- `causalTransformer-api` (:8014) → world model condicionado a acciones (Fase 3).
 """
 
 from __future__ import annotations
@@ -21,26 +22,42 @@ class AstarothError(RuntimeError):
 class AstarothClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._client = httpx.AsyncClient(timeout=settings.astaroth_timeout_s)
+        self._client = httpx.AsyncClient(
+            timeout=settings.astaroth_timeout_s, follow_redirects=True
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
     async def _get(self, url: str, path: str) -> dict:
         response = await self._client.get(f"{url}{path}")
-        response.raise_for_status()
-        return response.json()
+        if response.status_code >= 400:
+            raise AstarothError(f"{path} → {response.status_code}: {response.text[:200]}")
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise AstarothError(
+                f"{path} → respuesta no-JSON ({response.status_code}): "
+                f"{response.text[:200]}"
+            ) from exc
 
     async def _post(self, url: str, path: str, payload: dict) -> dict:
         response = await self._client.post(f"{url}{path}", json=payload)
         if response.status_code >= 400:
             raise AstarothError(f"{path} → {response.status_code}: {response.text[:200]}")
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise AstarothError(
+                f"{path} → respuesta no-JSON ({response.status_code}): "
+                f"{response.text[:200]}"
+            ) from exc
 
     async def health(self) -> dict[str, Any]:
         services = {
             "xgboost": self._settings.astaroth_xgb_url,
             "transformer": self._settings.astaroth_transformer_url,
+            "causal": self._settings.astaroth_causal_url,
         }
         out: dict[str, Any] = {}
         for name, url in services.items():
@@ -84,4 +101,36 @@ class AstarothClient:
             self._settings.astaroth_transformer_url,
             "/predict",
             {"model_name": model_name, "points": points, "data": data},
+        )
+
+    # ── causalTransformer-api (world model, Fase 3) ────────────────────────
+
+    async def causal_predict(
+        self,
+        run_id: str,
+        model_type: str,
+        data: dict,
+        n_steps: int = 1,
+        submodel: str | None = None,
+    ) -> dict:
+        """Predice con un run entrenado. `data` sigue el contrato del upstream:
+        `prev_outputs`, `prev_treatments`, `current_treatments`, `vitals`,
+        `static_features` y `active_entries` (arrays con dimensión de lote).
+        """
+        payload: dict[str, Any] = {
+            "run_id": run_id,
+            "model_type": model_type,
+            "data": data,
+            "n_steps": n_steps,
+        }
+        if submodel:
+            payload["submodel"] = submodel
+        return await self._post(
+            self._settings.astaroth_causal_url, "/predict/", payload
+        )
+
+    async def causal_scaling(self, run_id: str) -> dict:
+        """Parámetros de normalización del run (medias/desv de entrada y salida)."""
+        return await self._get(
+            self._settings.astaroth_causal_url, f"/predict/scaling/{run_id}"
         )

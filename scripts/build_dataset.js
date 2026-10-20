@@ -10,6 +10,8 @@
  *   u_hist   [k, 4]       acciones del relé (1 = ON, 0 = OFF)
  *   d_hist   [k, dim_d]   contexto temporal: hora sin/cos + día de la semana sin/cos
  *   y_future [h, dim_x]   estados futuros a predecir
+ *   u_future [h, 4]       acciones futuras (world model condicionado a u_t)
+ *   d_future [h, dim_d]   contexto temporal futuro (vitals)
  *
  * Además, por muestra (metadatos, no tensores):
  *   phase     nombre de la fase activa en `t` (fase -> `static_features`)
@@ -190,9 +192,15 @@ async function main() {
     const uHist = idxs.map((j) => CHANNELS.map((ch) => uSeries[ch][j]));
     const dHist = idxs.map((j) => ctx(timeline[j]));
     const yFuture = [];
-    for (let j = i + 1; j <= i + opts.h; j++) yFuture.push(opts.metrics.map((m) => xSeries[m][j]));
+    const uFuture = [];
+    const dFuture = [];
+    for (let j = i + 1; j <= i + opts.h; j++) {
+      yFuture.push(opts.metrics.map((m) => xSeries[m][j]));
+      uFuture.push(CHANNELS.map((ch) => uSeries[ch][j]));
+      dFuture.push(ctx(timeline[j]));
+    }
     const snap = snapshotAt(snapshots, timeline[i]);
-    samples.push({ t: new Date(timeline[i]).toISOString(), simulated: bucketSim.has(timeline[i]) ? bucketSim.get(timeline[i]) : null, x_hist: xHist, u_hist: uHist, d_hist: dHist, y_future: yFuture, phase: snap ? snap.phase : null, x_target: snap ? snap.targets : null });
+    samples.push({ t: new Date(timeline[i]).toISOString(), simulated: bucketSim.has(timeline[i]) ? bucketSim.get(timeline[i]) : null, x_hist: xHist, u_hist: uHist, d_hist: dHist, y_future: yFuture, u_future: uFuture, d_future: dFuture, phase: snap ? snap.phase : null, x_target: snap ? snap.targets : null });
   }
 
   // 6. Salida.

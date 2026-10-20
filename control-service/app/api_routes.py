@@ -6,12 +6,14 @@ from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import text
 
 from app import registry
+from app import scaler as scaler_mod
 from app import effect as effect_mod
 from app.clients import AstarothClient, AstarothError
 from app.core import database
 from app.predictors import (
     AstarothITransformer,
     AstarothXGB,
+    CausalFormer,
     Persistence,
     train_transformer,
     train_xgb,
@@ -24,11 +26,13 @@ from app.schemas import (
     PredictRequest,
     PredictionPoint,
     PredictResponse,
+    ScalerFitRequest,
+    ScalerResponse,
     StateResponse,
     TrainRequest,
     TrainResponse,
 )
-from app.state import build_window, fetch_actuals, latest_data_time
+from app.state import build_rows, build_window, fetch_actuals, latest_data_time
 
 router = APIRouter()
 VERSION = "0.1.0"
@@ -90,10 +94,17 @@ async def health(request: Request) -> HealthResponse:
 
 
 @router.get("/state", response_model=StateResponse, summary="Estado x_t actual")
-async def get_state(request: Request, at: datetime | None = None) -> StateResponse:
+async def get_state(
+    request: Request, at: datetime | None = None, normalize: bool = False
+) -> StateResponse:
     settings = _settings(request)
     engine = _engine()
     window = await build_window(engine, settings, await _anchor(engine, settings, at))
+    z = None
+    if normalize:
+        scaler = await scaler_mod.load_active(engine, settings)
+        if scaler is not None:
+            z = scaler.normalize(window.x)
     return StateResponse(
         metrics=window.metrics,
         channels=window.channels,
@@ -102,7 +113,41 @@ async def get_state(request: Request, at: datetime | None = None) -> StateRespon
         u=window.u,
         d=window.d,
         latest=dict(zip(window.metrics, window.latest)),
+        active=window.active,
+        observed=window.observed,
+        z=z,
+        x_target=window.x_target,
+        phase=window.phase,
     )
+
+
+@router.get("/scaler", response_model=ScalerResponse, summary="Scaler z-score activo")
+async def get_scaler(request: Request) -> ScalerResponse:
+    scaler = await scaler_mod.load_active(_engine(), _settings(request))
+    if scaler is None:
+        raise HTTPException(status_code=404, detail="no hay scaler activo (usa POST /scaler/fit)")
+    return ScalerResponse(**scaler.to_dict())
+
+
+@router.post("/scaler/fit", response_model=ScalerResponse, summary="Ajustar y guardar scaler")
+async def fit_scaler(payload: ScalerFitRequest, request: Request) -> ScalerResponse:
+    settings = _settings(request)
+    engine = _engine()
+    until = payload.until or await latest_data_time(engine, settings)
+    if until is None:
+        raise HTTPException(status_code=400, detail="no hay telemetría para ajustar")
+    since = payload.since or (until - timedelta(hours=payload.hours))
+    rows = await build_rows(engine, settings, since, until)
+    if len(rows) < scaler_mod.MIN_SAMPLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"histórico insuficiente ({len(rows)} filas, mín {scaler_mod.MIN_SAMPLES})",
+        )
+    scaler = scaler_mod.fit(
+        rows, settings.metric_list, name=payload.name or settings.scaler_name
+    )
+    await scaler_mod.save(settings, scaler)
+    return ScalerResponse(**scaler.to_dict())
 
 
 @router.post("/predict", response_model=PredictResponse, summary="Predecir x_{t+1..t+H}")
@@ -111,7 +156,23 @@ async def predict(payload: PredictRequest, request: Request) -> PredictResponse:
     horizon = payload.h or settings.horizon
     engine = _engine()
     window = await build_window(engine, settings, await _anchor(engine, settings, payload.at))
-    predictor = _select_predictor(request, payload.model)
+    if payload.model == "causal":
+        run_id = payload.run_id or settings.causal_run_id
+        if not run_id:
+            raise HTTPException(
+                status_code=400,
+                detail="model='causal' requiere run_id (o configurar CAUSAL_RUN_ID)",
+            )
+        predictor = CausalFormer(
+            _astaroth(request),
+            run_id=run_id,
+            model_type=payload.model_type or settings.causal_model_type,
+            submodel=payload.submodel or (settings.causal_submodel or None),
+            phases=settings.phase_list,
+            current_action=payload.current_action,
+        )
+    else:
+        predictor = _select_predictor(request, payload.model)
     try:
         values = await predictor.predict(engine, settings, window, horizon)
     except AstarothError as exc:
