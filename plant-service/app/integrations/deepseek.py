@@ -11,7 +11,6 @@ from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.schemas.recommendation import RecommendationResponse
-from app.schemas.targets import PhaseTargets
 
 logger = logging.getLogger("plant-service.deepseek")
 
@@ -76,7 +75,10 @@ del sustrato y luminosidad. Parámetros como CO2, pH o conductividad son \
 informativos (informational_only: true) salvo que se indique lo contrario.
 7. Usa valores agronómicos reales y coherentes con fuentes confiables.
 8. Si un parámetro no aplica para una fase, puedes omitirlo.
-9. Nombres de claves JSON en inglés, valores de texto y razones en español."""
+9. Nombres de claves JSON en inglés, valores de texto y razones en español.
+10. Si se incluyen DATOS DE REFERENCIA DEL CATÁLOGO, priorízalos sobre tu \
+conocimiento general y mantén coherencia con ellos; no inventes datos que los \
+contradigan."""
 
 
 def build_user_prompt(
@@ -86,11 +88,12 @@ def build_user_prompt(
     location: str | None,
     growing_system: str | None,
     extra_context: str | None,
+    knowledge_context: str | None = None,
 ) -> str:
     def or_none(value: str | None) -> str:
         return value.strip() if value and value.strip() else "no especificada"
 
-    return (
+    prompt = (
         "Genera los parámetros ambientales para el siguiente cultivo:\n"
         f"- Especie/cultivo: {species}\n"
         f"- Variedad: {or_none(variety)}\n"
@@ -98,6 +101,14 @@ def build_user_prompt(
         f"- Sistema de cultivo: {or_none(growing_system)}\n"
         f"- Notas adicionales: {or_none(extra_context)}\n"
     )
+    if knowledge_context and knowledge_context.strip():
+        prompt += (
+            "\nDATOS DE REFERENCIA DEL CATÁLOGO DE PLANTAS "
+            "(úsalos como fuente prioritaria; si algo no aparece, apóyate en "
+            "tu conocimiento agronómico e indícalo en 'notes'):\n"
+            f"{knowledge_context.strip()}\n"
+        )
+    return prompt
 
 
 # ─── Normalización defensiva de la respuesta ──────────────────────────────

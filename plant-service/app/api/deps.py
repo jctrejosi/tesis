@@ -4,12 +4,14 @@ import secrets
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_session
 from app.integrations.deepseek import DeepSeekClient
+from app.integrations.rag import RagClient
 
-SessionDep = Annotated[object, Depends(get_session)]
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
@@ -21,9 +23,17 @@ def get_deepseek_client(request: Request) -> DeepSeekClient:
 DeepSeekDep = Annotated[DeepSeekClient, Depends(get_deepseek_client)]
 
 
+def get_rag_client(request: Request) -> RagClient:
+    """Cliente HTTP hacia el servicio RAG compartido (Paimon)."""
+    return request.app.state.rag
+
+
+RagDep = Annotated[RagClient, Depends(get_rag_client)]
+
+
 def require_device_key(
+    settings: SettingsDep,
     x_api_key: Annotated[str | None, Header()] = None,
-    settings: SettingsDep = None,
 ) -> None:
     """Autenticación simple para los endpoints del dispositivo: clave estática
     compartida en el header `X-API-Key`. Documentada en docs/esp-contract.md.

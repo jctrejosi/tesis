@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app import repositories
-from app.api.deps import DeepSeekDep, SessionDep
+from app.api.deps import DeepSeekDep, RagDep, SessionDep
 from app.core.config import Settings, get_settings
 from app.core.database import get_session
 from app.integrations.deepseek import (
@@ -151,10 +151,11 @@ async def recommend(
     crop_id: uuid.UUID,
     session: SessionDep,
     client: DeepSeekDep,
+    rag: RagDep,
     settings: Settings = Depends(get_settings),
     payload: RecommendRequest = RecommendRequest(),
 ) -> RecommendResult:
-    service = RecommendationService(session, client, settings)
+    service = RecommendationService(session, client, settings, rag)
     try:
         return await service.recommend(crop_id, payload)
     except DeepSeekUnavailableError as exc:

@@ -223,6 +223,11 @@ function ensurePlantEnv() {
     if (!keyLine || !keyLine[1]) {
       log('plant', paint('yellow', 'DEEPSEEK_API_KEY vacía en .env: las recomendaciones IA no funcionarán (el resto del servicio sí).'));
     }
+    const ragUrl = content.match(/^RAG_SERVICE_URL\s*=\s*(\S*)$/m);
+    const ragKey = content.match(/^RAG_SERVICE_API_KEY\s*=\s*(\S*)$/m);
+    if (ragUrl && ragUrl[1] && (!ragKey || !ragKey[1])) {
+      log('plant', paint('yellow', 'RAG_SERVICE_URL definida pero RAG_SERVICE_API_KEY vacía: /catalog responderá 401/502 y las recomendaciones no usarán catálogo.'));
+    }
     return;
   }
   if (!fs.existsSync(examplePath)) {

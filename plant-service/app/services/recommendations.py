@@ -4,12 +4,12 @@ import re
 import unicodedata
 import uuid
 
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import repositories
 from app.core.config import Settings
 from app.integrations.deepseek import DeepSeekClient
+from app.integrations.rag import RagClient
 from app.models import CropPhase, Recommendation
 from app.schemas import PhaseApplyResult, RecommendRequest, RecommendResult
 from app.schemas.recommendation import RecommendationResponse
@@ -33,13 +33,20 @@ class RecommendationService:
         session: AsyncSession,
         client: DeepSeekClient,
         settings: Settings,
+        rag: RagClient,
     ) -> None:
         self.session = session
         self.client = client
         self.settings = settings
+        self.rag = rag
 
     async def recommend(self, crop_id: uuid.UUID, request: RecommendRequest) -> RecommendResult:
         crop = await CropService(self.session).get(crop_id)
+
+        # Recupera contexto del catálogo de plantas desde el servicio RAG
+        # compartido para fundamentar la recomendación en datos específicos.
+        query = " ".join(part for part in (crop.species, crop.variety) if part)
+        knowledge_context, chunks_used = await self.rag.build_context(query)
 
         validated: RecommendationResponse = await self.client.recommend(
             {
@@ -48,6 +55,7 @@ class RecommendationService:
                 "location": crop.location,
                 "growing_system": crop.growing_system,
                 "extra_context": request.extra_context or crop.notes,
+                "knowledge_context": knowledge_context or None,
             }
         )
 
@@ -129,10 +137,17 @@ class RecommendationService:
             notes=validated.notes
             + (
                 [
-                    "Se preservaron las configuraciones modificadas manualmente: "
-                    "la recomendación solo actualizó los valores de referencia."
+                    (
+                        "Se preservaron las configuraciones modificadas manualmente: "
+                        "la recomendación solo actualizó los valores de referencia."
+                    )
                 ]
                 if preserved_any
+                else []
+            )
+            + (
+                [f"Recomendación fundamentada en {chunks_used} fragmento(s) del catálogo de plantas."]
+                if chunks_used
                 else []
             ),
             phases=results,

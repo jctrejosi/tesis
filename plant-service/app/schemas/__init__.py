@@ -5,6 +5,10 @@ from app.schemas.actuator import (
     ActuatorConstraints,
     ActuatorRegistryRead,
 )
+from app.schemas.catalog import (
+    CatalogSearchRequest,
+    CatalogTextIngest,
+)
 from app.schemas.crop import (
     CropCreate,
     CropDetail,
@@ -42,6 +46,8 @@ __all__ = [
     "ActuatorConfigSnapshotRead",
     "ActuatorConstraints",
     "ActuatorRegistryRead",
+    "CatalogSearchRequest",
+    "CatalogTextIngest",
     "CropCreate",
     "CropDetail",
     "CropRead",

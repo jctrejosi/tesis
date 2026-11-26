@@ -77,9 +77,55 @@ docker run --rm -p 8000:8000 --env-file .env plant-service
 | `DEEPSEEK_MODEL`           | `deepseek-chat`                                          | Modelo usado. |
 | `DEEPSEEK_TIMEOUT_SECONDS` | `30`                                                     | Timeout de la llamada. |
 | `DEVICE_API_KEY`           | *(vacía)*                                                | Clave compartida para endpoints del ESP (`X-API-Key`). Vacía ⇒ endpoints deshabilitados (503). |
+| `RAG_SERVICE_URL`          | *(vacía)*                                                | URL base del **servicio RAG de Paimon** (ej. `http://localhost:8104`). Vacía ⇒ `/catalog` devuelve 503 y no se inyecta contexto en las recomendaciones. |
+| `RAG_SERVICE_API_KEY`      | *(vacía)*                                                | Clave `X-API-Key` del servicio RAG, si la exige. |
+| `RAG_NAMESPACE`            | `plant-service`                                          | Namespace (`bot_id`) propio dentro del servicio RAG. |
+| `RAG_PROJECT`              | `tesis`                                                  | Proyecto (espacio físico aislado) dentro del servicio RAG. |
+| `RAG_TIMEOUT_SECONDS`      | `30`                                                     | Timeout de las llamadas al servicio RAG. |
+| `RAG_CONTEXT_CHUNKS`       | `3`                                                      | Fragmentos inyectados como contexto en las recomendaciones. |
 
 La API key de DeepSeek **solo** vive en el entorno del servicio; nunca se envía
 al navegador ni se almacena en código.
+
+## RAG de catálogos de plantas
+
+plant-service **no almacena catálogos ni genera embeddings**. Delega la ingesta y
+la búsqueda semántica en el **servicio RAG central de Paimon**
+(`Paimon/rag_service`, por defecto `http://localhost:8104`), usando su propio
+namespace `plant-service` dentro del proyecto `tesis`.
+
+El servicio RAG guarda cada proyecto en un espacio **físicamente separado**
+(schema de PostgreSQL o archivo SQLite); plant-service envía
+`X-RAG-Project: tesis` en cada llamada.
+
+```text
+archivo/texto ──> plant-service /catalog ──HTTP──> rag_service (embeddings + búsqueda)
+                                                          │
+POST /crops/{id}/recommend ── contexto del catálogo ───────┘
+                    └──> prompt de DeepSeek enriquecido
+```
+
+- **Formatos soportados**: los del servicio RAG (PDF, DOCX, XLSX, CSV, TXT, MD,
+  HTML, JSON…); plant-service solo reenvía el archivo.
+- **Recomendaciones fundamentadas**: al pedir `POST /crops/{id}/recommend`, se
+  consulta `/context` del servicio RAG con la especie/variedad y se inyecta como
+  dato de referencia en el prompt de DeepSeek (`RAG_CONTEXT_CHUNKS`). Si el
+  servicio no está disponible, la recomendación sigue funcionando sin catálogo.
+
+Endpoints (`/api/v1`, proxy hacia el servicio RAG):
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `POST` | `/catalog/sources` | Sube un archivo de catálogo (multipart: `file`, `title`, `description`). |
+| `POST` | `/catalog/sources/text` | Carga un catálogo como texto (`title`, `text`, `description`). |
+| `GET`  | `/catalog/sources` | Lista catálogos cargados. |
+| `GET`  | `/catalog/sources/{id}` | Detalle con documentos y fragmentos. |
+| `DELETE` | `/catalog/sources/{id}` | Elimina un catálogo y sus fragmentos. |
+| `POST` | `/catalog/search` | Búsqueda (`query`, `top_k`, `use_reranker`). |
+| `GET`  | `/catalog/context?q=...` | Contexto concatenado listo para un prompt. |
+
+Errores: si `RAG_SERVICE_URL` no está configurada o el servicio no responde, los
+endpoints devuelven `503`; si el servicio responde con error, `502`.
 
 ## Persistencia
 
@@ -93,6 +139,9 @@ tablas del backend NestJS. Tablas creadas automáticamente al arrancar
   `recommended_targets` (recomendación original de DeepSeek).
 - `recommendations` — auditoría de cada respuesta validada del modelo.
 - `device_telemetry` — mediciones enviadas por el ESP.
+
+Los catálogos de plantas **no** se guardan aquí: viven en el servicio RAG de
+Paimon.
 
 En los tests se usa SQLite en memoria (mismo modelo). Para desarrollo local sin
 Docker también puede usarse SQLite: `DATABASE_URL=sqlite+aiosqlite:///./dev.db`.

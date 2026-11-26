@@ -13,6 +13,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import close_db, init_db
 from app.core.logging import setup_logging
 from app.integrations.deepseek import DeepSeekClient, DeepSeekError
+from app.integrations.rag import RagClient
 from app.services.actuators import seed_default_registry
 
 logger = logging.getLogger("plant-service")
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI):
     logger.info("%s listo en http://%s:%s", settings.app_name, settings.host, settings.port)
     yield
     await app.state.deepseek.aclose()
+    await app.state.rag.aclose()
     await close_db()
 
 
@@ -48,6 +50,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    # Cliente del RAG compartido. Se crea aquí (no en el lifespan) para que las
+    # rutas funcionen igual en tests sin ciclo de vida; su HTTP client es lazy.
+    app.state.rag = RagClient(settings)
 
     # Toda la app (incluidas las dependencias) usa esta instancia de settings.
     app.dependency_overrides[get_settings] = lambda: settings

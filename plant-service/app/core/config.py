@@ -37,6 +37,20 @@ class Settings(BaseSettings):
     # Clave compartida para los endpoints del dispositivo (ESP).
     device_api_key: str = ""
 
+    # ── Servicio RAG compartido (Paimon) ──
+    # URL base del rag_service. Vacía ⇒ los endpoints /catalog devuelven 503 y
+    # las recomendaciones no se fundamentan en catálogos.
+    rag_service_url: str = ""
+    # Clave compartida (X-API-Key) del servicio RAG, si exige autenticación.
+    rag_service_api_key: str = ""
+    # Namespace (`bot_id`) propio de plant-service dentro del servicio RAG.
+    rag_namespace: str = "plant-service"
+    # Proyecto (espacio físico aislado) dentro del servicio RAG.
+    rag_project: str = "tesis"
+    rag_timeout_seconds: float = 30.0
+    # Nº de fragmentos que se inyectan como contexto en las recomendaciones.
+    rag_context_chunks: int = 3
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
@@ -44,6 +58,10 @@ class Settings(BaseSettings):
     @property
     def deepseek_enabled(self) -> bool:
         return bool(self.deepseek_api_key.strip())
+
+    @property
+    def rag_enabled(self) -> bool:
+        return bool(self.rag_service_url.strip())
 
 
 @lru_cache
